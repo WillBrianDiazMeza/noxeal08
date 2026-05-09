@@ -1,0 +1,58 @@
+{
+  "summary": "Iteration 3 full-stack testing of Noxeal admin panel + AI automation. Backend: 58/59 pytest pass (98%). The 1 failure is EMERGENT_LLM_KEY budget exhaustion on /api/admin/ai/suggest-topics (NOT a code bug — current cost 0.025 vs max 0.001 in litellm). All admin gating works (401 anon / 403 user / 200 admin) on every admin endpoint. Public /api/articles correctly excludes drafts via PUBLIC_STATUS_FILTER. Claude article generation returned a fully-shaped doc (slug unique, status='draft' by default, all required fields, valid category from the 5 allowed). publish:true correctly persists status='published'. Nano Banana image regen wrote a real PNG to /app/backend/static/images/ and the file is reachable at /api/static/images/{filename} (200 + image/png + >1KB). Publish/unpublish cycle round-trips correctly: unpublishing made the article 404 on public, publishing brought it back. Admin update endpoint validates empty body (400) and missing slug (404). Role update validates invalid role (400) and self-demotion (400). All iteration 1+2 regression tests still green (sitemap & robots now under /api/* — fixed by main agent — both pass). Frontend: anonymous → /admin redirects to /entrar?next=/admin; non-admin user → /admin redirects to /. Admin login + /admin renders centered control panel: 6 stat cards (9 / 8 / 1 / 5 / 5 / 20 = articles/published/drafts/comments/subscribers/users), all 5 tabs (Artículos, Generar con IA, Comentarios, Suscriptores, Usuarios), Articles list shows DRAFT/PUBLISHED status pills, IA badge on AI-generated articles, and per-article Editar/Publicar/Despublicar/Regenerar imagen IA/Ver/Eliminar buttons. Header conditionally shows 'ADMIN' link only for admin user. (Verified by leftover draft from main agent's dev testing: 'TikTok y la Generación Z…' showing DRAFT + IA badges.)",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/admin/ai/suggest-topics (and any subsequent Claude/Nano Banana call)", "issue": "EMERGENT_LLM_KEY has hit its budget cap. litellm error: 'Budget has been exceeded! Current cost: 0.025671, Max budget: 0.001'. Once exceeded, ALL AI endpoints (suggest-topics, generate, regenerate-image) will return 500 with detail starting 'IA no respondió: ...'. Action: top up / regenerate the EMERGENT_LLM_KEY via the platform billing UI; the code itself is correct.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "/api/admin/articles/{slug}/regenerate-image", "issue": "When a regenerated PNG already exists for a slug, the previous file in /app/backend/static/images/ is orphaned (never deleted). Over time the static dir will accumulate. Suggest deleting the previous file when image field starts with '/api/static/images/'."},
+      {"endpoint": "/api/admin/articles/generate", "issue": "ai.get('title') is sliced to [:160] but slugify caps at 80 chars — fine. However, if the AI returns a title >160 chars, the visible title is cut mid-word; consider rstrip + ellipsis."},
+      {"endpoint": "/api/admin/users/{user_id}/role", "issue": "Promoting a user to 'admin' is allowed silently — no audit log. For an admin/CEO/IA roles system this should at least be logged."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "HeroEditorialCard", "issue": "Console warning logged on every admin page mount: 'An error occurred in the <HeroEditorialCard> component. Consider adding an error boundary…'. Page still renders fine but the warning suggests the card crashes when it's mounted on /admin (probably reading from /api/articles/featured which isn't relevant here). Wrap in error boundary or suppress mount on non-public routes.", "selector": "<HeroEditorialCard>", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin > Artículos list", "issues": ["Article rows are correct but image thumbnail box for AI-generated drafts (image='') shows an empty grey square with placeholder icon — fine, but consider rendering a dashed outline + 'Sin imagen' label to make the empty state explicit."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_iteration2.py",
+    "/app/backend/tests/test_iteration3.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "URGENT: Refresh / increase budget on EMERGENT_LLM_KEY — current cap is 0.001 USD which has already been exceeded by today's testing (used 0.025). Until refreshed, /api/admin/ai/suggest-topics, /api/admin/articles/generate, /api/admin/articles/{slug}/regenerate-image will all return 500 'IA no respondió'.",
+    "[Optional] Wrap <HeroEditorialCard> in an error boundary to silence the React 'An error occurred in the component' warning visible in admin pages.",
+    "[Optional] Delete previous PNG file when /admin/articles/{slug}/regenerate-image is called twice on the same article — currently orphans accumulate in /app/backend/static/images/.",
+    "[Optional] After the AI generates an article, the 'image' field is empty string. Frontend ArticleCard / Articulo handles this gracefully but the admin Articles list could show 'Sin imagen' explicitly.",
+    "[Carryover from iteration 2] Suppress console 401 noise from AuthContext probing /api/auth/me when anonymous.",
+    "[Carryover] Cookies set with secure=False; preview is HTTPS so secure=True + samesite='none' would be more correct for cross-site scenarios."
+  ],
+  "critical_code_review_comments": [
+    "ai_service.generate_article_draft: trusts the model to return a JSON body that's a list of strings — if the model regresses and returns a single string the article body will be a string instead of list and the frontend rendering paragraphs via map() will crash. Add `if isinstance(data['body'], str): data['body'] = [data['body']]`.",
+    "server.py:admin_generate_article: image_keyword field is accepted from the model but never used downstream (only image_prompt is). Either remove it from the prompt schema or wire it into a future Unsplash fallback.",
+    "server.py:admin_publish_article sets 'published_at' to now() on every publish, which will REORDER articles on the public home if a long-existing draft is published. That is probably the right behavior, but document it — existing tests don't cover this ordering.",
+    "server.py admin_update_article allows setting hero/side/viral/trending booleans but does not enforce uniqueness on hero (only one article should have hero=True). Could lead to multiple heroes on the front page.",
+    "ai_service uses session_id with random uuid hex per request — that's fine for stateless calls but means no chat history reuse. Confirm intended.",
+    "server.py is now ~830 lines mixing auth, articles, admin, AI orchestration, SEO. Split into routers/auth.py, routers/articles.py, routers/admin.py, routers/seo.py.",
+    "No rate limit on /api/admin/articles/generate or /api/admin/articles/{slug}/regenerate-image — an admin (or compromised admin token) could rack up large LLM bills very quickly. Add a per-minute cap.",
+    "/api/admin/ai/suggest-topics returns 500 with the raw litellm error in the 'detail' field. That message is leaked verbatim to the client; consider a generic message + log the original."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration2.py (sitemap/robots URLs updated to /api/sitemap.xml and /api/robots.txt — both now pass after main agent moved them under /api/)",
+    "/app/backend/tests/test_iteration3.py (NEW — 25 tests covering admin gating, public draft filter, role updates, publish/unpublish cycle, article CRUD, AI generation, AI image regen)",
+    "/app/test_reports/pytest/pytest_results.xml (regenerated)"
+  ],
+  "success_rate": {"backend": "98% (58/59 — 1 failure due to EMERGENT_LLM_KEY budget cap, not a code bug)", "frontend": "100% on what was visually verified (anonymous redirect, non-admin redirect, admin panel layout with 6 stat cards + 5 tabs + per-article action buttons + DRAFT/PUBLISHED status pills + IA badge on AI articles)"},
+  "test_credentials": "admin@noxeal.com / Noxeal2026! — verified working. Random TEST_-prefixed users created during pytest are harmless and accumulate slowly.",
+  "seed_data_creation": "test_iteration3 created 1 draft and 1 published article via Claude generation for the AI flow tests; both deleted in the same test (verified by /api/admin/articles after each test). 1 PNG written to /app/backend/static/images/ during regenerate-image test (orphaned by design — see minor issue). 1 leftover DRAFT 'TikTok y la Generación Z…' was already in DB from main agent's dev testing, NOT created by me; leaving it in place since it serves as a useful visual proof of the DRAFT/IA badges in the screenshot.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend regression file: /app/backend/tests/{backend_test.py,test_iteration2.py,test_iteration3.py}. Run: pytest /app/backend/tests/ -v (takes ~100s; the AI tests dominate). Iteration 3 specifically tests admin auth gating + AI flows — if EMERGENT_LLM_KEY budget is refreshed, expect all 59/59 to pass; otherwise expect the same single failure on test_admin_suggest_topics. Frontend has data-testid coverage on share-* / comments-* / tag-filter-* / cat-filter-* / explorar-search-input. Admin panel rendering verified in screenshot at .screenshots/admin_panel.png — 6 stat cards + 5 tabs + DRAFT/PUBLISHED status pills + IA badge + Editar/Publicar/Despublicar/Regenerar imagen IA/Ver/Eliminar buttons all present and visible.",
+  "rca of the issue": "Single backend test failure RCA: /api/admin/ai/suggest-topics returned 500 'IA no respondió: Failed to generate chat completion: litellm.BadRequestError: OpenAIException - Budget has been exceeded! Current cost: 0.025671, Max budget: 0.001'. Sequence: pytest ran test_admin_generate_article_draft (Claude call ~$0.01) → test_admin_generate_article_publish_true (another Claude call ~$0.01) → test_admin_regenerate_image (Nano Banana call ~$0.005) which together pushed cost above the 0.001 cap, then test_admin_suggest_topics (alphabetically AFTER generate but BEFORE regenerate-image in pytest collection — actually order varies, but cumulative cost exceeded cap mid-run). Mitigation: top up EMERGENT_LLM_KEY budget via platform UI; OR add a per-key spend guard at the ai_service level that returns 503 with a friendly message before invoking Claude/Nano Banana when month-to-date spend is near cap; OR move EMERGENT_LLM_KEY to a key with a higher budget."
+}

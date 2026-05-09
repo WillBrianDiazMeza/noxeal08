@@ -172,7 +172,7 @@ def test_comment_delete_owner_can_delete(user_session):
 
 # ---------- Sitemap & robots ----------
 def test_sitemap_xml():
-    r = requests.get(f"{BASE}/sitemap.xml")
+    r = requests.get(f"{BASE}/api/sitemap.xml")
     assert r.status_code == 200
     assert "application/xml" in r.headers.get("content-type", "").lower()
     assert "<?xml" in r.text and "<urlset" in r.text
@@ -180,7 +180,7 @@ def test_sitemap_xml():
 
 
 def test_robots_txt():
-    r = requests.get(f"{BASE}/robots.txt")
+    r = requests.get(f"{BASE}/api/robots.txt")
     assert r.status_code == 200
     assert "Sitemap:" in r.text
     assert "User-agent:" in r.text

@@ -22,7 +22,7 @@ export function ArticleCard({ article, size = "default", testId }) {
     <article className="group" data-testid={testId || `article-card-${article.slug}`}>
       <Link to={`/articulo/${article.slug}`} className="block">
         <div className={`card-image-wrap ${aspect} mb-5`}>
-          <img src={article.image} alt={article.title} loading="lazy" />
+          <img src={resolveImg(article.image)} alt={article.title} loading="lazy" />
         </div>
         <div className="label-eyebrow mb-3" data-testid={`article-category-${article.slug}`}>{article.category}</div>
         <h3 className={`${titleClass} mb-3 text-[#111111] group-hover:opacity-80 transition-opacity`}>
@@ -50,7 +50,7 @@ export function HeroEditorialCard({ article }) {
     <article className="group" data-testid={`hero-editorial-${article.slug}`}>
       <Link to={`/articulo/${article.slug}`} className="block">
         <div className="card-image-wrap aspect-[16/11] mb-7">
-          <img src={article.image} alt={article.title} />
+          <img src={resolveImg(article.image)} alt={article.title} />
         </div>
         <div className="label-eyebrow mb-4">{article.category} · Portada</div>
         <h2 className="h-display text-4xl md:text-5xl lg:text-[56px] mb-5 text-[#111111] group-hover:opacity-85 transition-opacity">

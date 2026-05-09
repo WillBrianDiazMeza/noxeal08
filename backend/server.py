@@ -13,9 +13,12 @@ from typing import List, Optional
 import bcrypt
 import jwt
 from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, Query
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
+
+import ai_service
 
 
 # ---------- Setup ----------
@@ -211,7 +214,9 @@ async def newsletter_list(_admin: dict = Depends(require_admin)):
     return [NewsletterOut(**i) for i in items]
 
 
-# ---------- Articles ----------
+# ---------- Articles (public — only status=published) ----------
+PUBLIC_STATUS_FILTER = {"status": {"$ne": "draft"}}
+
 @api_router.get("/articles")
 async def list_articles(
     category: Optional[str] = None,
@@ -220,7 +225,7 @@ async def list_articles(
     trending: Optional[bool] = None,
     limit: int = Query(50, le=100),
 ):
-    q = {}
+    q = dict(PUBLIC_STATUS_FILTER)
     if category:
         q["category_slug"] = category.lower()
     if tag:
@@ -240,17 +245,18 @@ async def list_articles(
 
 @api_router.get("/articles/featured")
 async def featured_articles():
-    """Returns hero (1) + side (3) + viral (4) + latest (6)."""
-    hero = await db.articles.find_one({"hero": True}, {"_id": 0})
-    side = await db.articles.find({"side": True}, {"_id": 0}).limit(3).to_list(3)
-    viral = await db.articles.find({"viral": True}, {"_id": 0}).limit(4).to_list(4)
-    latest = await db.articles.find({}, {"_id": 0}).sort("published_at", -1).limit(6).to_list(6)
+    """Returns hero (1) + side (3) + viral (4) + latest (6). Only published."""
+    base = PUBLIC_STATUS_FILTER
+    hero = await db.articles.find_one({**base, "hero": True}, {"_id": 0})
+    side = await db.articles.find({**base, "side": True}, {"_id": 0}).limit(3).to_list(3)
+    viral = await db.articles.find({**base, "viral": True}, {"_id": 0}).limit(4).to_list(4)
+    latest = await db.articles.find(base, {"_id": 0}).sort("published_at", -1).limit(6).to_list(6)
     return {"hero": hero, "side": side, "viral": viral, "latest": latest}
 
 
 @api_router.get("/articles/{slug}")
 async def get_article(slug: str):
-    article = await db.articles.find_one({"slug": slug}, {"_id": 0})
+    article = await db.articles.find_one({"slug": slug, **PUBLIC_STATUS_FILTER}, {"_id": 0})
     if not article:
         raise HTTPException(status_code=404, detail="Artículo no encontrado")
     return article
@@ -259,7 +265,7 @@ async def get_article(slug: str):
 @api_router.get("/articles/{slug}/related")
 async def related_articles(slug: str, limit: int = 3):
     """Find related articles by shared tags, then by category, excluding the same slug."""
-    current = await db.articles.find_one({"slug": slug}, {"_id": 0})
+    current = await db.articles.find_one({"slug": slug, **PUBLIC_STATUS_FILTER}, {"_id": 0})
     if not current:
         raise HTTPException(status_code=404, detail="Artículo no encontrado")
     tags = current.get("tags", []) or []
@@ -268,7 +274,7 @@ async def related_articles(slug: str, limit: int = 3):
     seen = {slug}
     if tags:
         cursor = db.articles.find(
-            {"slug": {"$ne": slug}, "tags": {"$in": tags}}, {"_id": 0}
+            {**PUBLIC_STATUS_FILTER, "slug": {"$ne": slug}, "tags": {"$in": tags}}, {"_id": 0}
         ).sort("published_at", -1).limit(limit * 2)
         async for doc in cursor:
             if doc["slug"] not in seen:
@@ -276,7 +282,7 @@ async def related_articles(slug: str, limit: int = 3):
                 if len(related) >= limit: break
     if len(related) < limit and cat:
         cursor = db.articles.find(
-            {"slug": {"$nin": list(seen)}, "category_slug": cat}, {"_id": 0}
+            {**PUBLIC_STATUS_FILTER, "slug": {"$nin": list(seen)}, "category_slug": cat}, {"_id": 0}
         ).sort("published_at", -1).limit(limit)
         async for doc in cursor:
             if doc["slug"] not in seen:
@@ -284,7 +290,7 @@ async def related_articles(slug: str, limit: int = 3):
                 if len(related) >= limit: break
     if len(related) < limit:
         cursor = db.articles.find(
-            {"slug": {"$nin": list(seen)}}, {"_id": 0}
+            {**PUBLIC_STATUS_FILTER, "slug": {"$nin": list(seen)}}, {"_id": 0}
         ).sort("published_at", -1).limit(limit)
         async for doc in cursor:
             if doc["slug"] not in seen:
@@ -296,6 +302,7 @@ async def related_articles(slug: str, limit: int = 3):
 @api_router.get("/categories")
 async def list_categories():
     pipeline = [
+        {"$match": PUBLIC_STATUS_FILTER},
         {"$group": {"_id": {"slug": "$category_slug", "name": "$category"}, "count": {"$sum": 1}}},
         {"$project": {"_id": 0, "slug": "$_id.slug", "name": "$_id.name", "count": 1}},
         {"$sort": {"count": -1}},
@@ -306,6 +313,7 @@ async def list_categories():
 @api_router.get("/tags")
 async def list_tags():
     pipeline = [
+        {"$match": PUBLIC_STATUS_FILTER},
         {"$unwind": "$tags"},
         {"$group": {"_id": "$tags", "count": {"$sum": 1}}},
         {"$project": {"_id": 0, "slug": "$_id", "count": 1}},
@@ -360,6 +368,206 @@ async def delete_comment(comment_id: str, user: dict = Depends(get_current_user)
         raise HTTPException(status_code=403, detail="No autorizado")
     await db.comments.update_one({"id": comment_id}, {"$set": {"deleted": True}})
     return {"ok": True}
+
+
+# ---------- Admin: Articles & AI generation ----------
+class GenerateArticleIn(BaseModel):
+    topic: str = Field(min_length=3, max_length=300)
+    publish: bool = False  # if True, save as published; default save as draft
+
+
+class TopicsIn(BaseModel):
+    focus: Optional[str] = None
+
+
+class ArticleUpdate(BaseModel):
+    title: Optional[str] = None
+    excerpt: Optional[str] = None
+    body: Optional[List[str]] = None
+    category: Optional[str] = None
+    category_slug: Optional[str] = None
+    tags: Optional[List[str]] = None
+    image: Optional[str] = None
+    image_prompt: Optional[str] = None
+    meta_description: Optional[str] = None
+    hero: Optional[bool] = None
+    side: Optional[bool] = None
+    viral: Optional[bool] = None
+    trending: Optional[bool] = None
+
+
+CATEGORY_TO_SLUG = {
+    "Tecnología": "tecnologia",
+    "Investigación": "investigacion",
+    "Salud y redes": "salud-y-redes",
+    "Cultura digital": "cultura-digital",
+    "IA": "ia",
+}
+
+
+@api_router.get("/admin/articles")
+async def admin_list_articles(_admin: dict = Depends(require_admin), status: Optional[str] = None):
+    q = {}
+    if status:
+        q["status"] = status
+    items = await db.articles.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return items
+
+
+@api_router.post("/admin/ai/suggest-topics")
+async def admin_suggest_topics(data: TopicsIn, _admin: dict = Depends(require_admin)):
+    try:
+        topics = await ai_service.suggest_topics(data.focus)
+        return {"topics": topics}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"IA no respondió: {str(e)[:200]}")
+
+
+@api_router.post("/admin/articles/generate")
+async def admin_generate_article(data: GenerateArticleIn, admin: dict = Depends(require_admin)):
+    """Use Claude Sonnet 4.5 to generate a draft article from a topic."""
+    try:
+        ai = await ai_service.generate_article_draft(data.topic)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"IA no respondió: {str(e)[:200]}")
+
+    title = ai.get("title", data.topic)[:160]
+    base_slug = ai_service.slugify(title)
+    slug = base_slug
+    n = 1
+    while await db.articles.find_one({"slug": slug}):
+        n += 1
+        slug = f"{base_slug}-{n}"
+
+    category = ai.get("category", "Cultura digital")
+    if category not in CATEGORY_TO_SLUG:
+        category = "Cultura digital"
+
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "slug": slug,
+        "status": "published" if data.publish else "draft",
+        "title": title,
+        "excerpt": ai.get("excerpt", "")[:280],
+        "body": ai.get("body", []),
+        "category": category,
+        "category_slug": CATEGORY_TO_SLUG[category],
+        "tags": [t.lower().strip() for t in ai.get("tags", []) if t][:8],
+        "meta_description": ai.get("meta_description", ai.get("excerpt", ""))[:200],
+        "image_prompt": ai.get("image_prompt", data.topic),
+        "image_keyword": ai.get("image_keyword", ""),
+        "image": "",  # will be filled by regenerate-image
+        "author": "Noxeal AI",
+        "created_by": admin["id"],
+        "created_at": now,
+        "published_at": now,
+        "read_time": max(3, len(" ".join(ai.get("body", []))) // 1000),
+        "hero": False, "side": False, "viral": False, "trending": False,
+    }
+    await db.articles.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.post("/admin/articles/{slug}/regenerate-image")
+async def admin_regenerate_image(slug: str, _admin: dict = Depends(require_admin)):
+    article = await db.articles.find_one({"slug": slug}, {"_id": 0})
+    if not article:
+        raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    prompt = article.get("image_prompt") or article.get("title", "")
+    try:
+        image_url = await ai_service.generate_image(prompt)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No se pudo generar la imagen: {str(e)[:200]}")
+    await db.articles.update_one({"slug": slug}, {"$set": {"image": image_url}})
+    return {"ok": True, "image": image_url}
+
+
+@api_router.put("/admin/articles/{slug}")
+async def admin_update_article(slug: str, data: ArticleUpdate, _admin: dict = Depends(require_admin)):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    if "category" in update and update["category"] in CATEGORY_TO_SLUG:
+        update["category_slug"] = CATEGORY_TO_SLUG[update["category"]]
+    if "tags" in update:
+        update["tags"] = [t.lower().strip() for t in update["tags"] if t]
+    if not update:
+        raise HTTPException(status_code=400, detail="Nada para actualizar")
+    res = await db.articles.update_one({"slug": slug}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    article = await db.articles.find_one({"slug": slug}, {"_id": 0})
+    return article
+
+
+@api_router.post("/admin/articles/{slug}/publish")
+async def admin_publish_article(slug: str, _admin: dict = Depends(require_admin)):
+    now = datetime.now(timezone.utc).isoformat()
+    res = await db.articles.update_one(
+        {"slug": slug},
+        {"$set": {"status": "published", "published_at": now}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    return {"ok": True, "status": "published"}
+
+
+@api_router.post("/admin/articles/{slug}/unpublish")
+async def admin_unpublish_article(slug: str, _admin: dict = Depends(require_admin)):
+    res = await db.articles.update_one({"slug": slug}, {"$set": {"status": "draft"}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    return {"ok": True, "status": "draft"}
+
+
+@api_router.delete("/admin/articles/{slug}")
+async def admin_delete_article(slug: str, _admin: dict = Depends(require_admin)):
+    res = await db.articles.delete_one({"slug": slug})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    await db.comments.delete_many({"article_slug": slug})
+    return {"ok": True}
+
+
+@api_router.get("/admin/comments")
+async def admin_list_comments(_admin: dict = Depends(require_admin), include_deleted: bool = False):
+    q = {} if include_deleted else {"deleted": {"$ne": True}}
+    items = await db.comments.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return items
+
+
+@api_router.get("/admin/users")
+async def admin_list_users(_admin: dict = Depends(require_admin)):
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
+    return users
+
+
+class RoleUpdate(BaseModel):
+    role: str  # "admin" | "author" | "user"
+
+
+@api_router.put("/admin/users/{user_id}/role")
+async def admin_update_role(user_id: str, data: RoleUpdate, admin: dict = Depends(require_admin)):
+    if data.role not in ("admin", "author", "user"):
+        raise HTTPException(status_code=400, detail="Rol inválido")
+    if user_id == admin["id"] and data.role != "admin":
+        raise HTTPException(status_code=400, detail="No puedes degradar tu propio rol")
+    res = await db.users.update_one({"id": user_id}, {"$set": {"role": data.role}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {"ok": True}
+
+
+@api_router.get("/admin/stats")
+async def admin_stats(_admin: dict = Depends(require_admin)):
+    return {
+        "articles": await db.articles.count_documents({}),
+        "published": await db.articles.count_documents({"status": "published"}),
+        "drafts": await db.articles.count_documents({"status": "draft"}),
+        "comments": await db.comments.count_documents({"deleted": {"$ne": True}}),
+        "subscribers": await db.newsletter.count_documents({}),
+        "users": await db.users.count_documents({}),
+    }
 
 
 # ---------- Seeders ----------
@@ -520,16 +728,27 @@ async def seed_articles():
         docs = []
         for i, a in enumerate(SAMPLE_ARTICLES):
             published = (base_time - timedelta(days=i)).isoformat()
-            docs.append({**a, "id": str(uuid.uuid4()), "published_at": published})
+            docs.append({
+                **a,
+                "id": str(uuid.uuid4()),
+                "published_at": published,
+                "created_at": published,
+                "status": "published",
+            })
         await db.articles.insert_many(docs)
         return
-    # Keep existing rows up-to-date with tags from SAMPLE_ARTICLES
+    # Keep existing rows up-to-date
     for a in SAMPLE_ARTICLES:
+        update = {}
         if "tags" in a:
-            await db.articles.update_one(
-                {"slug": a["slug"]},
-                {"$set": {"tags": a["tags"]}},
-            )
+            update["tags"] = a["tags"]
+        if update:
+            await db.articles.update_one({"slug": a["slug"]}, {"$set": update})
+    # Ensure every article has a status field (default "published" for existing docs)
+    await db.articles.update_many(
+        {"status": {"$exists": False}},
+        {"$set": {"status": "published"}},
+    )
 
 
 @app.on_event("startup")
@@ -539,6 +758,7 @@ async def on_startup():
     await db.articles.create_index("slug", unique=True)
     await db.articles.create_index("tags")
     await db.articles.create_index("category_slug")
+    await db.articles.create_index("status")
     await db.newsletter.create_index("email", unique=True)
     await db.comments.create_index("article_slug")
     await db.comments.create_index("id", unique=True)
@@ -558,6 +778,12 @@ async def root():
 
 
 app.include_router(api_router)
+
+# Serve AI-generated images at /api/static/images/*
+STATIC_DIR = ROOT_DIR / "static"
+STATIC_DIR.mkdir(exist_ok=True)
+(STATIC_DIR / "images").mkdir(exist_ok=True)
+app.mount("/api/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 # ---------- Sitemap & robots (SEO) — under /api so kubernetes ingress forwards them ----------

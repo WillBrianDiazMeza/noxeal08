@@ -35,6 +35,11 @@ export default function Header() {
 
           {user && user.email ? (
             <div className="flex items-center gap-3">
+              {user.role === "admin" && (
+                <NavLink to="/admin" className="nav-link inline-flex items-center gap-1 text-xs uppercase tracking-widest" data-testid="nav-admin">
+                  Admin
+                </NavLink>
+              )}
               <span className="text-sm text-[#111] font-medium" data-testid="user-name">{user.name}</span>
               <span className="text-xs text-[#86868b] hidden lg:inline" data-testid="user-email">{user.email}</span>
               <button onClick={logout} className="nav-link inline-flex items-center gap-1" data-testid="nav-logout">

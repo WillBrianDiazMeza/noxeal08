@@ -66,7 +66,7 @@ export default function Articulo() {
 
         <div className="max-w-5xl mx-auto px-5 lg:px-8 mb-16">
           <div className="card-image-wrap aspect-[16/9]">
-            <img src={article.image} alt={article.title} />
+            <img src={article.image && (article.image.startsWith('http') ? article.image : `${process.env.REACT_APP_BACKEND_URL || ''}${article.image}`)} alt={article.title} />
           </div>
         </div>
 

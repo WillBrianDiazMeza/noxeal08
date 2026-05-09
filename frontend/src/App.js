@@ -13,6 +13,8 @@ import Buscar from "@/pages/Buscar";
 import Entrar from "@/pages/Entrar";
 import Suscribirse from "@/pages/Suscribirse";
 import Static from "@/pages/Static";
+import Admin from "@/pages/Admin";
+import ProtectedAdmin from "@/components/ProtectedAdmin";
 
 function App() {
   return (
@@ -30,6 +32,7 @@ function App() {
             <Route path="/articulo/:slug" element={<Articulo />} />
             <Route path="/entrar" element={<Entrar />} />
             <Route path="/suscribirse" element={<Suscribirse />} />
+            <Route path="/admin" element={<ProtectedAdmin><Admin /></ProtectedAdmin>} />
             <Route path="/contacto" element={
               <Static title="Contacto" body={[
                 "Para colaboraciones editoriales, prensa o sugerencias de temas: hola@noxeal.com.",
