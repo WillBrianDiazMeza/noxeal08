@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Tag } from "lucide-react";
 import { api } from "@/lib/api";
+import SEO from "@/components/SEO";
+import SocialShare from "@/components/SocialShare";
+import Comments from "@/components/Comments";
+import RelatedArticles from "@/components/RelatedArticles";
 
 function formatDate(iso) {
   if (!iso) return "";
@@ -18,10 +22,12 @@ export default function Articulo() {
 
   useEffect(() => {
     setLoading(true);
+    setArticle(null);
     api.get(`/articles/${slug}`)
       .then(({ data }) => setArticle(data))
       .catch(() => setError("Artículo no encontrado"))
       .finally(() => setLoading(false));
+    window.scrollTo(0, 0);
   }, [slug]);
 
   if (loading) return <div className="max-w-3xl mx-auto px-5 py-32 text-center text-[#86868b]">Cargando…</div>;
@@ -34,7 +40,14 @@ export default function Articulo() {
 
   return (
     <main data-testid="article-page">
-      <article className="pt-16 md:pt-24 pb-24">
+      <SEO
+        title={article.title}
+        description={article.excerpt}
+        image={article.image}
+        type="article"
+        path={`/articulo/${article.slug}`}
+      />
+      <article className="pt-16 md:pt-24 pb-8">
         <div className="max-w-3xl mx-auto px-5 lg:px-0">
           <Link to="/explorar" className="inline-flex items-center gap-2 text-sm text-[#86868b] hover:text-black mb-10" data-testid="article-back">
             <ArrowLeft size={14} /> Volver
@@ -62,9 +75,36 @@ export default function Articulo() {
             {article.excerpt}
           </p>
           {(article.body || []).map((p, i) => (<p key={i}>{p}</p>))}
-          <p className="text-[#86868b] mt-12 text-sm">— Redacción Noxeal</p>
         </div>
+
+        {/* Tags */}
+        {article.tags && article.tags.length > 0 && (
+          <div className="max-w-2xl mx-auto px-5 lg:px-0 mt-10" data-testid="article-tags">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Tag size={14} className="text-[#86868b]" />
+              {article.tags.map((t) => (
+                <Link
+                  key={t}
+                  to={`/explorar?tag=${encodeURIComponent(t)}`}
+                  className="px-3 py-1 rounded-full text-xs border border-black/10 hover:bg-black hover:text-white transition-colors"
+                  data-testid={`article-tag-${t}`}
+                >
+                  #{t}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="max-w-2xl mx-auto px-5 lg:px-0">
+          <SocialShare url={`/articulo/${article.slug}`} title={article.title} excerpt={article.excerpt} />
+        </div>
+
+        {/* Comments */}
+        <Comments slug={article.slug} />
       </article>
+
+      <RelatedArticles slug={article.slug} />
     </main>
   );
 }

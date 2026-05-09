@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 2 full-stack testing of Noxeal. Backend: 34/34 pytest passing after fixing one bug (POST /api/articles/{slug}/comments was leaking Mongo ObjectId in response, causing 500). All new endpoints work: /api/tags, /api/articles?tag=, /api/articles/{slug}/related, /api/articles/{slug}/comments (GET/POST), /api/comments/{id} DELETE (admin-any / owner / 403 for stranger). Search now matches tags. Sitemap.xml and robots.txt FAIL via the public URL because they live at the root path and the kubernetes ingress only proxies /api/* to the backend — both work correctly when hit at localhost:8001. Frontend (visual + DOM): hero title updated, manifesto strip with 01/02/03 present, search-icon now sits LEFT of placeholder (paddingLeft 56px, no overlap), tag chips on Explorar with #ia preselectable via ?tag=ia, article page renders tag chips, 7 social-share testids + copy-link button, react-helmet-async OG title/desc/image inject correctly, page <title> updates per route, comments section with 'Inicia sesión' CTA when anonymous, admin comments display 'EDITOR' badge, related articles 'Sigue tirando del hilo' with 3 cards.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /sitemap.xml & /robots.txt (public URL)", "issue": "Routes defined at app root (not /api/*). Kubernetes ingress only proxies /api/* to backend:8001, so the public URL serves the React SPA's index.html instead. Backend logic itself is correct (verified against localhost:8001: returns valid XML and text with Sitemap line). Move them to /api/sitemap.xml and /api/robots.txt OR add ingress rewrite rules. Until fixed, search engines crawling the public host will not see the sitemap.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/articles/{slug}/comments", "issue": "FIXED by tester — motor.insert_one mutates the dict to add a Mongo ObjectId in `_id`; returning the dict caused FastAPI's JSON encoder to raise 500. Added `doc.pop('_id', None)` before return."},
+      {"endpoint": "/api/articles/{slug}/related (FRONTEND_URL in backend/.env)", "issue": "Carryover from iteration 1: backend/.env FRONTEND_URL still points to old preview host (682955d6-...) but actual public host is trending-news-3.preview.emergentagent.com. Sitemap output uses the wrong absolute URLs."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Auth probe on cold load", "issue": "Carryover from iteration 1: AuthContext fires GET /api/auth/me on every page load and logs 401 noise to console for anonymous users. Should swallow silently.", "affected_selectors": ["console"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration2.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Move /sitemap.xml and /robots.txt under /api/ prefix (e.g. /api/sitemap.xml, /api/robots.txt) so the kubernetes ingress proxies them to backend. Or update ingress to forward those two static paths to backend.",
+    "Update backend/.env FRONTEND_URL to the actual public host (https://trending-news-3.preview.emergentagent.com) so sitemap URLs are correct.",
+    "Suppress 401 console noise from AuthContext probing /api/auth/me when anonymous (carryover from iteration 1).",
+    "[Optional] Show logged-in user's email next to the Salir button in the header (carryover)."
+  ],
+  "critical_code_review_comments": [
+    "server.py create_comment leaked Mongo `_id` ObjectId in response — fixed by tester. Apply the same defensive pop pattern wherever a dict freshly inserted via motor is returned to the client.",
+    "Sitemap/robots routes should be under /api/* per the project's ingress contract (see ENVIRONMENT SETUP: only /api/* is routed to backend).",
+    "No rate limiting on /api/articles/{slug}/comments POST — comments can be spam-flooded by any authenticated user.",
+    "Comments soft-delete leaves the row in DB indefinitely; consider TTL or hard-delete-after-N-days.",
+    "server.py at ~600 lines is acceptable but starting to mix concerns (auth, articles, comments, SEO, CORS). Split into routers when adding more features.",
+    "Carryover: cookies set with secure=False; the preview is HTTPS so secure=True + samesite='none' would be more correct for cross-site scenarios."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (single-line fix: doc.pop('_id', None) in create_comment)",
+    "/app/backend/tests/test_iteration2.py (new — iteration 2 regression suite, 16 tests)",
+    "/app/test_reports/pytest/pytest_results.xml (regenerated)"
+  ],
+  "success_rate": {"backend": "94% (32/34 pass; the 2 failures are sitemap.xml + robots.txt which are real public-URL routing bugs, not test issues)", "frontend": "100% on what was visually verified (hero, manifesto, explorar layout + tag chips + ?tag=ia, article page tags+share+comments+related, OG meta tags, document.title per page, search-icon left of placeholder)"},
+  "test_credentials": "admin@noxeal.com / Noxeal2026! (already in /app/memory/test_credentials.md). Test users registered with random uuids per test run.",
+  "seed_data_creation": "Tests created TEST_-prefixed comments and ephemeral users via /api/auth/register. All TEST comments get cleaned up via DELETE within their own test. A few user accounts (u_xxx@noxeal.com) remain in the users collection — harmless.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression file: /app/backend/tests/test_iteration2.py + /app/backend/tests/backend_test.py. Run: pytest /app/backend/tests/ -v. Comments POST 500 was fixed by adding doc.pop('_id', None). Sitemap/robots failures are EXPECTED until main agent moves them under /api/ — when retesting after the fix, simply update the test URLs in test_sitemap_xml/test_robots_txt to BASE/api/sitemap.xml and BASE/api/robots.txt. Frontend has comprehensive data-testid coverage (share-x/facebook/whatsapp/telegram/instagram/tiktok/copy-link, comments-section, comment-login-cta, comments-list, comment-{id}, related-articles, tag-filter-{slug}, cat-filter-{slug}, explorar-search-input, etc.). OG meta tags injected by react-helmet-async require ~2.5s wait after navigation before reading.",
+  "rca of the issue": "Comments POST 500 RCA: motor's AsyncIOMotorCollection.insert_one MUTATES the input dict, adding `_id: ObjectId(...)`. The handler then returned that same dict. FastAPI's jsonable_encoder cannot serialize bson.ObjectId, so it raised 'TypeError: ObjectId object is not iterable' (visible in /var/log/supervisor/backend.err.log). Fix: pop `_id` before returning, or build a fresh response dict. Sitemap/robots RCA: kubernetes ingress is configured to only forward paths matching /api/* to the backend service on port 8001. Routes registered at the app root (not under api_router) are unreachable from the public host — the React dev server (or static index.html) is served instead, with content-type text/html. Mitigation: register them under /api or change the ingress."
+}

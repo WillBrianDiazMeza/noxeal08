@@ -234,7 +234,10 @@ body {
 /* Inputs */
 .input-pill {
   width: 100%;
-  padding: 16px 22px;
+  padding-top: 16px;
+  padding-bottom: 16px;
+  padding-left: 22px;
+  padding-right: 22px;
   border-radius: 9999px;
   border: 1px solid transparent;
   background: var(--nx-surface-muted);

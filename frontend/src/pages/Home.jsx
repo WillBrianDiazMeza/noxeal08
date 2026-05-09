@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight } from "lucide-react";
 import { api } from "@/lib/api";
+import SEO from "@/components/SEO";
 import { ArticleCard, HeroEditorialCard } from "@/components/ArticleCard";
 import ViralCard from "@/components/ViralCard";
 import NewsletterSection from "@/components/NewsletterSection";
@@ -19,12 +20,14 @@ export default function Home() {
 
   return (
     <main data-testid="home-page">
+      <SEO path="/" />
+
       {/* ========== HERO ========== */}
       <section className="pt-20 md:pt-28 pb-24 md:pb-32" data-testid="hero-section">
         <div className="max-w-7xl mx-auto px-5 lg:px-8">
           <div className="label-eyebrow nx-fade-up">N°01 · Edición continua</div>
           <h1 className="h-display text-[44px] sm:text-6xl md:text-7xl lg:text-[96px] mt-6 max-w-5xl nx-fade-up nx-delay-100">
-            Entiende lo que <em className="font-serif italic">todos comparten</em>, antes de creerlo.
+            Descubre la <em className="font-serif italic">verdad</em> antes de que el algoritmo la distorsione.
           </h1>
           <p className="text-lg md:text-xl text-[#424245] leading-relaxed max-w-2xl mt-8 nx-fade-up nx-delay-200">
             Noxeal transforma tendencias, historias virales y temas complejos en contenido claro,
@@ -42,6 +45,23 @@ export default function Home() {
       </section>
 
       <div className="nx-divider max-w-7xl mx-auto" />
+
+      {/* ========== MANIFESTO STRIP ========== */}
+      <section className="py-14 border-b border-black/5" data-testid="manifesto-strip">
+        <div className="max-w-7xl mx-auto px-5 lg:px-8 grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-16">
+          {[
+            { n: "01", t: "Verificable", d: "Cada afirmación lleva fuente, fecha y enlace. Si no se puede comprobar, no se publica." },
+            { n: "02", t: "Sin ruido", d: "Una historia bien contada vale más que diez titulares de impacto." },
+            { n: "03", t: "Contexto primero", d: "Antes del veredicto, el mapa. De dónde viene, qué cambia y por qué importa." },
+          ].map((it) => (
+            <div key={it.n}>
+              <div className="label-eyebrow mb-3">{it.n} · Principio</div>
+              <h3 className="h-display text-2xl mb-2">{it.t}</h3>
+              <p className="text-[15px] text-[#424245] leading-relaxed">{it.d}</p>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* ========== EDITORIAL COVER ========== */}
       <section className="py-20 md:py-28" data-testid="editorial-cover-section">

@@ -215,6 +215,7 @@ async def newsletter_list(_admin: dict = Depends(require_admin)):
 @api_router.get("/articles")
 async def list_articles(
     category: Optional[str] = None,
+    tag: Optional[str] = None,
     search: Optional[str] = None,
     trending: Optional[bool] = None,
     limit: int = Query(50, le=100),
@@ -222,6 +223,8 @@ async def list_articles(
     q = {}
     if category:
         q["category_slug"] = category.lower()
+    if tag:
+        q["tags"] = tag.lower()
     if trending:
         q["trending"] = True
     if search:
@@ -229,6 +232,7 @@ async def list_articles(
             {"title": {"$regex": search, "$options": "i"}},
             {"excerpt": {"$regex": search, "$options": "i"}},
             {"category": {"$regex": search, "$options": "i"}},
+            {"tags": {"$regex": search, "$options": "i"}},
         ]
     items = await db.articles.find(q, {"_id": 0}).sort("published_at", -1).to_list(limit)
     return items
@@ -252,6 +256,43 @@ async def get_article(slug: str):
     return article
 
 
+@api_router.get("/articles/{slug}/related")
+async def related_articles(slug: str, limit: int = 3):
+    """Find related articles by shared tags, then by category, excluding the same slug."""
+    current = await db.articles.find_one({"slug": slug}, {"_id": 0})
+    if not current:
+        raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    tags = current.get("tags", []) or []
+    cat = current.get("category_slug")
+    related = []
+    seen = {slug}
+    if tags:
+        cursor = db.articles.find(
+            {"slug": {"$ne": slug}, "tags": {"$in": tags}}, {"_id": 0}
+        ).sort("published_at", -1).limit(limit * 2)
+        async for doc in cursor:
+            if doc["slug"] not in seen:
+                related.append(doc); seen.add(doc["slug"])
+                if len(related) >= limit: break
+    if len(related) < limit and cat:
+        cursor = db.articles.find(
+            {"slug": {"$nin": list(seen)}, "category_slug": cat}, {"_id": 0}
+        ).sort("published_at", -1).limit(limit)
+        async for doc in cursor:
+            if doc["slug"] not in seen:
+                related.append(doc); seen.add(doc["slug"])
+                if len(related) >= limit: break
+    if len(related) < limit:
+        cursor = db.articles.find(
+            {"slug": {"$nin": list(seen)}}, {"_id": 0}
+        ).sort("published_at", -1).limit(limit)
+        async for doc in cursor:
+            if doc["slug"] not in seen:
+                related.append(doc); seen.add(doc["slug"])
+                if len(related) >= limit: break
+    return related
+
+
 @api_router.get("/categories")
 async def list_categories():
     pipeline = [
@@ -262,12 +303,72 @@ async def list_categories():
     return await db.articles.aggregate(pipeline).to_list(50)
 
 
+@api_router.get("/tags")
+async def list_tags():
+    pipeline = [
+        {"$unwind": "$tags"},
+        {"$group": {"_id": "$tags", "count": {"$sum": 1}}},
+        {"$project": {"_id": 0, "slug": "$_id", "count": 1}},
+        {"$sort": {"count": -1, "slug": 1}},
+    ]
+    return await db.articles.aggregate(pipeline).to_list(200)
+
+
+# ---------- Comments ----------
+class CommentIn(BaseModel):
+    body: str = Field(min_length=2, max_length=2000)
+    parent_id: Optional[str] = None
+
+
+@api_router.get("/articles/{slug}/comments")
+async def list_comments(slug: str):
+    comments = await db.comments.find(
+        {"article_slug": slug, "deleted": {"$ne": True}}, {"_id": 0}
+    ).sort("created_at", 1).to_list(500)
+    return comments
+
+
+@api_router.post("/articles/{slug}/comments")
+async def create_comment(slug: str, data: CommentIn, user: dict = Depends(get_current_user)):
+    article = await db.articles.find_one({"slug": slug}, {"_id": 0, "slug": 1})
+    if not article:
+        raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "article_slug": slug,
+        "user_id": user["id"],
+        "user_name": user.get("name") or user.get("email"),
+        "user_role": user.get("role", "user"),
+        "body": data.body.strip(),
+        "parent_id": data.parent_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "deleted": False,
+    }
+    await db.comments.insert_one(doc)
+    doc.pop("deleted", None)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.delete("/comments/{comment_id}")
+async def delete_comment(comment_id: str, user: dict = Depends(get_current_user)):
+    """User can soft-delete own comment; admin can delete any."""
+    comment = await db.comments.find_one({"id": comment_id}, {"_id": 0})
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comentario no encontrado")
+    if user.get("role") != "admin" and comment.get("user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    await db.comments.update_one({"id": comment_id}, {"$set": {"deleted": True}})
+    return {"ok": True}
+
+
 # ---------- Seeders ----------
 SAMPLE_ARTICLES = [
     {
         "slug": "libro-negro-digital-epstein",
         "category": "Investigación",
         "category_slug": "investigacion",
+        "tags": ["epstein", "filtraciones", "rumores", "documentos"],
         "title": "Qué se sabe y qué no sobre el supuesto \"Libro Negro\" digital de Epstein",
         "excerpt": "Recorrido por los documentos filtrados, las teorías que circulan en redes y las pruebas que sí han resistido el escrutinio público.",
         "image": "https://images.unsplash.com/photo-1677064061401-f77f966ff8a1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwxfHxibGFjayUyMGxlYXRoZXIlMjBub3RlYm9va3xlbnwwfHx8fDE3NzgzMjY4NTB8MA&ixlib=rb-4.1.0&q=85",
@@ -284,6 +385,7 @@ SAMPLE_ARTICLES = [
         "slug": "ia-autoconsciente-realidad-fantasia",
         "category": "IA",
         "category_slug": "ia",
+        "tags": ["ia", "gpt-5", "claude", "consciencia", "tecnologia"],
         "title": "IA autoconsciente: ¿realidad técnica o fantasía colectiva?",
         "excerpt": "Lo que dicen los papers serios de 2025 frente a los hilos virales que aseguran que ChatGPT \"despertó\".",
         "image": "https://images.unsplash.com/photo-1674027444485-cec3da58eef4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MDV8MHwxfHNlYXJjaHwyfHxhcnRpZmljaWFsJTIwaW50ZWxsaWdlbmNlJTIwYnJhaW58ZW58MHx8fHwxNzc4MzI2ODQ5fDA&ixlib=rb-4.1.0&q=85",
@@ -299,6 +401,7 @@ SAMPLE_ARTICLES = [
         "slug": "cbdc-privacidad-banco-no-dice",
         "category": "Investigación",
         "category_slug": "investigacion",
+        "tags": ["cbdc", "privacidad", "banca", "vigilancia"],
         "title": "CBDC y privacidad: lo que tu banco no te está contando",
         "excerpt": "Las monedas digitales de banco central avanzan en silencio. Esto es lo que cambian para tu dinero y tus datos.",
         "image": "https://images.unsplash.com/photo-1765121689322-6befc57dc8db?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDR8MHwxfHNlYXJjaHwxfHxzdXJ2ZWlsbGFuY2UlMjBwcml2YWN5fGVufDB8fHx8MTc3ODMyNjg0NHww&ixlib=rb-4.1.0&q=85",
@@ -314,6 +417,7 @@ SAMPLE_ARTICLES = [
         "slug": "deepfakes-politicos-guerra-verdad",
         "category": "Cultura digital",
         "category_slug": "cultura-digital",
+        "tags": ["deepfakes", "ia", "politica", "verdad", "tecnologia"],
         "title": "Deepfakes políticos: la nueva guerra por la verdad",
         "excerpt": "Cómo los videos sintéticos están redefiniendo campañas, escándalos y el concepto mismo de evidencia.",
         "image": "https://images.pexels.com/photos/17483870/pexels-photo-17483870.png",
@@ -329,6 +433,7 @@ SAMPLE_ARTICLES = [
         "slug": "algoritmos-animo-redes-humor",
         "category": "Salud y redes",
         "category_slug": "salud-y-redes",
+        "tags": ["algoritmos", "salud-mental", "redes-sociales", "tiktok"],
         "title": "Algoritmos y ánimo: cómo las redes están moldeando tu humor",
         "excerpt": "Estudios recientes muestran un patrón claro entre tiempo en feeds y caídas de bienestar emocional. Pero no es lineal.",
         "image": "https://images.unsplash.com/photo-1762279388957-c6ed514d3353?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGRhdGElMjB0ZWNobm9sb2d5fGVufDB8fHx8MTc3ODMyNjg0NHww&ixlib=rb-4.1.0&q=85",
@@ -343,6 +448,7 @@ SAMPLE_ARTICLES = [
         "slug": "modelos-open-source-ascenso",
         "category": "Tecnología",
         "category_slug": "tecnologia",
+        "tags": ["ia", "open-source", "llama", "mistral", "tecnologia"],
         "title": "El ascenso silencioso de los modelos open source",
         "excerpt": "Mientras los gigantes acaparan titulares, una nueva generación de modelos abiertos está cambiando las reglas del mercado.",
         "image": "https://images.unsplash.com/photo-1758073519996-6d3c63b4922c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMGRhdGElMjB0ZWNobm9sb2d5fGVufDB8fHx8MTc3ODMyNjg0NHww&ixlib=rb-4.1.0&q=85",
@@ -357,6 +463,7 @@ SAMPLE_ARTICLES = [
         "slug": "economia-atencion-donde-se-gana",
         "category": "Cultura digital",
         "category_slug": "cultura-digital",
+        "tags": ["redes-sociales", "tiktok", "economia", "creators"],
         "title": "La economía de la atención: dónde se gana hoy el dinero",
         "excerpt": "El producto ya no eres tú: es tu siguiente segundo de scroll. Quién monetiza, cómo y a qué coste.",
         "image": "https://images.unsplash.com/photo-1611746872915-64382b5c76da?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHw0fHxhYnN0cmFjdCUyMGRhdGElMjB0ZWNobm9sb2d5fGVufDB8fHx8MTc3ODMyNjg0NHww&ixlib=rb-4.1.0&q=85",
@@ -371,6 +478,7 @@ SAMPLE_ARTICLES = [
         "slug": "apple-vision-pro-fracaso-que-viene",
         "category": "Tecnología",
         "category_slug": "tecnologia",
+        "tags": ["apple", "vision-pro", "spatial-computing", "tecnologia"],
         "title": "Por qué Apple Vision Pro no despegó (y lo que viene ahora)",
         "excerpt": "Análisis frío del primer round de Apple en spatial computing y por qué la segunda generación cambia las reglas.",
         "image": "https://images.unsplash.com/photo-1707343844152-6d33a0bb32c1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHw1fHxhYnN0cmFjdCUyMGRhdGElMjB0ZWNobm9sb2d5fGVufDB8fHx8MTc3ODMyNjg0NHww&ixlib=rb-4.1.0&q=85",
@@ -407,14 +515,21 @@ async def seed_admin():
 
 async def seed_articles():
     count = await db.articles.count_documents({})
-    if count > 0:
+    if count == 0:
+        base_time = datetime.now(timezone.utc)
+        docs = []
+        for i, a in enumerate(SAMPLE_ARTICLES):
+            published = (base_time - timedelta(days=i)).isoformat()
+            docs.append({**a, "id": str(uuid.uuid4()), "published_at": published})
+        await db.articles.insert_many(docs)
         return
-    base_time = datetime.now(timezone.utc)
-    docs = []
-    for i, a in enumerate(SAMPLE_ARTICLES):
-        published = (base_time - timedelta(days=i)).isoformat()
-        docs.append({**a, "id": str(uuid.uuid4()), "published_at": published})
-    await db.articles.insert_many(docs)
+    # Keep existing rows up-to-date with tags from SAMPLE_ARTICLES
+    for a in SAMPLE_ARTICLES:
+        if "tags" in a:
+            await db.articles.update_one(
+                {"slug": a["slug"]},
+                {"$set": {"tags": a["tags"]}},
+            )
 
 
 @app.on_event("startup")
@@ -422,7 +537,11 @@ async def on_startup():
     await db.users.create_index("email", unique=True)
     await db.users.create_index("id", unique=True)
     await db.articles.create_index("slug", unique=True)
+    await db.articles.create_index("tags")
+    await db.articles.create_index("category_slug")
     await db.newsletter.create_index("email", unique=True)
+    await db.comments.create_index("article_slug")
+    await db.comments.create_index("id", unique=True)
     await seed_admin()
     await seed_articles()
 
@@ -439,6 +558,37 @@ async def root():
 
 
 app.include_router(api_router)
+
+
+# ---------- Sitemap & robots (SEO, not under /api) ----------
+from fastapi.responses import Response as PlainResponse
+
+@app.get("/sitemap.xml")
+async def sitemap():
+    base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
+    static_paths = ["/", "/explorar", "/tendencias", "/categorias", "/buscar", "/suscribirse", "/entrar"]
+    articles = await db.articles.find({}, {"_id": 0, "slug": 1, "published_at": 1}).to_list(1000)
+    urls = []
+    for p in static_paths:
+        urls.append(f"<url><loc>{base}{p}</loc><changefreq>daily</changefreq></url>")
+    for a in articles:
+        loc = f"{base}/articulo/{a['slug']}"
+        lastmod = a.get("published_at", "")[:10]
+        urls.append(f"<url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq></url>")
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        + "".join(urls)
+        + "</urlset>"
+    )
+    return PlainResponse(content=xml, media_type="application/xml")
+
+
+@app.get("/robots.txt")
+async def robots():
+    base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
+    txt = f"User-agent: *\nAllow: /\nSitemap: {base}/sitemap.xml\n"
+    return PlainResponse(content=txt, media_type="text/plain")
 
 # CORS — accept any *.preview.emergentagent.com host plus localhost dev
 app.add_middleware(

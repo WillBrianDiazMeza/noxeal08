@@ -35,14 +35,15 @@ export default function Buscar() {
           <div className="label-eyebrow mb-4">Búsqueda</div>
           <h1 className="h-display text-5xl md:text-6xl mb-8">¿Qué quieres entender hoy?</h1>
           <form onSubmit={submit} className="relative">
-            <Search size={20} className="absolute left-6 top-1/2 -translate-y-1/2 text-[#86868b]" />
+            <Search size={20} className="absolute left-6 top-1/2 -translate-y-1/2 text-[#86868b] pointer-events-none z-10" />
             <input
               autoFocus
               type="text"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Buscar por tema, tendencia o palabra clave…"
-              className="input-pill pl-14 text-lg"
+              className="input-pill text-lg"
+              style={{ paddingLeft: "3.5rem", paddingRight: "1.5rem" }}
               data-testid="buscar-input"
               aria-label="Buscar"
             />
