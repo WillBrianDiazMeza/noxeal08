@@ -1,0 +1,115 @@
+{
+  "theme_and_archetype": {
+    "theme": "Light",
+    "archetype": "4 (Swiss & High-Contrast) + Premium Editorial",
+    "vibe": "Apple + Vogue + Apple News. Clean, modern, fast, and elegant.",
+    "rationale": "The platform needs to feel like a premium digital news/analysis magazine. High-contrast structure (black/white/grays) provides the 'Apple' cleanliness, while the serif typography and asymmetric layout provide the 'Vogue' editorial authority."
+  },
+  "color_tokens": {
+    "background_default": "#FAFAFA",
+    "background_surface": "#FFFFFF",
+    "background_dark_surface": "#1D1D1F",
+    "background_muted": "#F5F5F7",
+    "text_primary": "#111111",
+    "text_secondary": "#86868B",
+    "text_dark_surface": "#F5F5F7",
+    "border_subtle": "#E5E5EA",
+    "border_dark": "#333336",
+    "accent_primary": "#000000",
+    "accent_hover": "#333333"
+  },
+  "typography": {
+    "font_families": {
+      "heading": "'Playfair Display', serif",
+      "body": "'Manrope', sans-serif",
+      "mono": "'JetBrains Mono', monospace"
+    },
+    "hierarchy": {
+      "h1": "text-5xl md:text-6xl lg:text-7xl font-semibold tracking-tight leading-tight font-serif",
+      "h2": "text-3xl md:text-4xl font-semibold tracking-tight leading-snug font-serif",
+      "h3": "text-xl md:text-2xl font-medium leading-snug font-serif",
+      "body_large": "text-lg md:text-xl font-sans text-[#111111] leading-relaxed",
+      "body_default": "text-base font-sans text-[#424245] leading-relaxed",
+      "label": "text-xs font-bold uppercase tracking-[0.15em] font-sans text-[#86868B]"
+    },
+    "packages_to_install": [
+      "npm install @fontsource/playfair-display @fontsource/manrope @fontsource/jetbrains-mono"
+    ]
+  },
+  "layout_and_spacing": {
+    "general": "Generous spacing. Use p-8 to p-12 for section paddings. Large typographic hierarchy and plenty of whitespace.",
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "grids": {
+      "editorial_cover": "Bento Grid Mode A: grid-cols-1 lg:grid-cols-12 gap-8. Hero article spans col-span-8. Side articles span col-span-4.",
+      "viral_topics": "Horizontal scroll or 4-column grid (grid-cols-1 md:grid-cols-2 lg:grid-cols-4) with gap-6.",
+      "latest_articles": "Grid of 3 columns (grid-cols-1 md:grid-cols-2 lg:grid-cols-3) gap-8."
+    }
+  },
+  "components": {
+    "header": {
+      "style": "Sticky at top, glassmorphism (backdrop-blur-xl bg-white/80). Clean, 1px bottom border (border-black/5).",
+      "layout": "Flex justify-between items-center h-20. Left: Nav links (Explorar, Tendencias, Categorías). Center: Large NOXEAL text logo (Playfair). Right: Buscar, Entrar, Suscribirse."
+    },
+    "buttons": {
+      "primary": "Rounded-full px-6 py-3 bg-black text-white hover:bg-[#333333] font-sans font-medium transition-colors",
+      "secondary": "Rounded-full px-6 py-3 bg-transparent text-black border border-black/10 hover:bg-black/5 font-sans font-medium transition-colors",
+      "tertiary": "Text link with underline on hover, tracking-wide text-sm font-bold uppercase"
+    },
+    "cards": {
+      "editorial_large": "No visible card background. Large image (aspect-[16/9] or [4/3] rounded-2xl), followed by category label, massive serif title, excerpt, and text button.",
+      "editorial_small": "Image aspect-[4/3] rounded-xl. Smaller serif title. Side-by-side on desktop if space permits, or stacked.",
+      "viral_dark_card": "Rounded-2xl p-8 bg-[#1D1D1F] border border-[#333336] text-white hover:-translate-y-1 transition-transform. Internal layout: flex flex-col justify-between h-full."
+    },
+    "inputs": {
+      "search": "Rounded-full bg-[#F5F5F7] border-transparent px-6 py-4 w-full text-lg focus:bg-white focus:border-black/20 focus:ring-0 outline-none transition-all",
+      "newsletter": "Flex. Input is rounded-l-full bg-[#F5F5F7] border-none px-6 py-4. Button is rounded-r-full bg-black text-white px-8."
+    }
+  },
+  "motion_and_interaction": {
+    "hover_states": "Images should slightly scale up (scale-105) inside a hidden-overflow container on hover. Links change color/opacity.",
+    "transitions": "Use smooth transitions: transition-all duration-300 ease-out.",
+    "scroll": "Implement standard smooth scrolling. Fade-in upward staggering for article cards as they enter the viewport."
+  },
+  "image_urls": {
+    "editorial_main_epstein": {
+      "url": "https://images.unsplash.com/photo-1677064061401-f77f966ff8a1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwxfHxibGFjayUyMGxlYXRoZXIlMjBub3RlYm9va3xlbnwwfHx8fDE3NzgzMjY4NTB8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Black leather notebook with pen, serving as the visual for 'Qué se sabe y qué no sobre el supuesto Libro Negro digital de Epstein'",
+      "category": "hero_article"
+    },
+    "viral_ai": {
+      "url": "https://images.unsplash.com/photo-1674027444485-cec3da58eef4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MDV8MHwxfHNlYXJjaHwyfHxhcnRpZmljaWFsJTIwaW50ZWxsaWdlbmNlJTIwYnJhaW58ZW58MHx8fHwxNzc4MzI2ODQ5fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Abstract glowing sphere, visual for 'IA autoconsciente'",
+      "category": "viral_card"
+    },
+    "viral_privacy": {
+      "url": "https://images.unsplash.com/photo-1765121689322-6befc57dc8db?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDR8MHwxfHNlYXJjaHwxfHxzdXJ2ZWlsbGFuY2UlMjBwcml2YWN5fGVufDB8fHx8MTc3ODMyNjg0NHww&ixlib=rb-4.1.0&q=85",
+      "description": "Security camera on wall, visual for 'CBDC y privacidad'",
+      "category": "viral_card"
+    },
+    "viral_deepfakes": {
+      "url": "https://images.pexels.com/photos/17483870/pexels-photo-17483870.png",
+      "description": "Abstract digital neural network, visual for 'Deepfakes políticos'",
+      "category": "viral_card"
+    },
+    "viral_algorithms": {
+      "url": "https://images.unsplash.com/photo-1762279388957-c6ed514d3353?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGRhdGElMjB0ZWNobm9sb2d5fGVufDB8fHx8MTc3ODMyNjg0NHww&ixlib=rb-4.1.0&q=85",
+      "description": "Abstract glowing lines and data, visual for 'Algoritmos y ánimo'",
+      "category": "viral_card"
+    },
+    "general_latest_1": {
+      "url": "https://images.unsplash.com/photo-1758073519996-6d3c63b4922c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMGRhdGElMjB0ZWNobm9sb2d5fGVufDB8fHx8MTc3ODMyNjg0NHww&ixlib=rb-4.1.0&q=85",
+      "description": "Blue glowing abstract dots, placeholder for tech culture article",
+      "category": "latest_articles"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Ensure the entire application uses Spanish (es) for all text and placeholder content.",
+    "Implement the Header exactly as described: Explorar, Tendencias, Categorías on the left, NOXEAL in center, Buscar, Entrar, Suscribirse on the right.",
+    "CRITICAL: All interactive elements (buttons, links, inputs, form submissions) MUST include 'data-testid' attributes (e.g., data-testid='explore-nav-link').",
+    "Do NOT use 'Inter' for headings. Use 'Playfair Display' (serif) for all headings to achieve the Vogue aesthetic, and 'Manrope' for body copy to achieve the Apple aesthetic.",
+    "The Hero section should feature the large title: 'Entiende lo que todos comparten, antes de creerlo.' with the subtext below it.",
+    "The 'Viral Topics' (Temas virales) section MUST use dark cards (bg-[#1D1D1F]) to contrast against the mostly white/light-gray site.",
+    "Ensure border-radiuses are large (rounded-2xl) to mimic modern Apple interfaces, and whitespace is extremely generous (p-8 to p-12).",
+    "For the articles, do not use boxed card designs with heavy shadows; rely on optical alignment, large crisp images, and strong typography (borderless design for main editorial flow)."
+  ]
+}
