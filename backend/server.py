@@ -261,6 +261,14 @@ async def featured_articles():
     return {"hero": hero, "side": side, "viral": viral, "latest": latest}
 
 
+@api_router.get("/articles/most-read")
+async def most_read(limit: int = 5):
+    items = await db.articles.find(
+        PUBLIC_STATUS_FILTER, {"_id": 0}
+    ).sort("views", -1).limit(limit).to_list(limit)
+    return items
+
+
 @api_router.get("/articles/{slug}")
 async def get_article(slug: str):
     article = await db.articles.find_one({"slug": slug, **PUBLIC_STATUS_FILTER}, {"_id": 0})
@@ -389,14 +397,6 @@ async def increment_view(slug: str):
     if res.matched_count == 0:
         return {"ok": False}
     return {"ok": True}
-
-
-@api_router.get("/articles/most-read")
-async def most_read(limit: int = 5):
-    items = await db.articles.find(
-        PUBLIC_STATUS_FILTER, {"_id": 0}
-    ).sort("views", -1).limit(limit).to_list(limit)
-    return items
 
 
 # ---------- Health & Stats (public-ish, used by Make.com / monitoring) ----------

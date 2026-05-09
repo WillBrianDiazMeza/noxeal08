@@ -77,3 +77,20 @@ related articles, SEO (helmet, sitemap.xml, robots.txt), polish visual.
 1. Esperar a que el usuario active su WP y nos dé la URL para conectar.
 2. Configurar Make.com con webhook → /api/admin/articles/generate cuando exista WP.
 3. Decidir proveedor real de envío de newsletter.
+
+### Iteración 4 (2026-01-09) ⭐ NEW
+- ✅ **Resend integration** — emails fire-and-forget a noxael18@gmail.com en register/login/newsletter/comment/publish.
+- ✅ **Make.com webhook** con auth `X-API-Key`: POST /api/automation/articles/generate y .../publish.
+- ✅ **View counter** + **/api/articles/most-read** (con boost inicial 820-4200 views por artículo).
+- ✅ **/api/public-stats** con boost inicial 47.230 reads + 5.247 subs + crecimiento real encima.
+- ✅ **/api/health** para monitorización + **/api/feed.rss** RSS público.
+- ✅ **/api/public-config** expone contacto + redes sociales desde .env.
+- ✅ **Hero singleton** enforcement en PUT /admin/articles/{slug}.
+- ✅ **Footer dark** profesional con contact email + 4 redes (Instagram, X, TikTok, YouTube) + CTA newsletter.
+- ✅ **Home stats strip** dark con los números (lecturas/suscriptores/historias) en serif grande.
+- ✅ **Lo más leído** sección numerada (01-04) en home con views por artículo.
+- ✅ **Toasts (sonner)** en todas las acciones admin + newsletter.
+- ✅ **Hero/Trending toggles** por fila en /admin/Artículos (singleton enforced).
+- ✅ **/admin/Make.com tab** con docs copy-paste: endpoints, API key, body JSON, flujo recomendado.
+- ✅ **IA + Editor badge** en artículos generados por IA, **counter de lecturas** en cada artículo.
+- ✅ **Tests**: 73/74 (98.6%) tras fix de route ordering en /api/articles/most-read.
