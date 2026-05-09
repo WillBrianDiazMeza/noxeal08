@@ -53,7 +53,7 @@ export default function NewsletterSection({ compact = false }) {
         {status.msg && (
           <p
             className={`mt-5 text-sm ${status.kind === "success" ? "text-emerald-700" : status.kind === "error" ? "text-red-600" : "text-[#86868b]"}`}
-            data-testid="newsletter-status"
+            data-testid={status.kind === "success" ? "newsletter-success" : status.kind === "error" ? "newsletter-error" : "newsletter-status"}
           >
             {status.msg}
           </p>

@@ -440,11 +440,10 @@ async def root():
 
 app.include_router(api_router)
 
-# CORS — frontend lives on the same preview origin; allow it explicitly so cookies work
-frontend_url = os.environ.get("FRONTEND_URL", "*")
+# CORS — accept any *.preview.emergentagent.com host plus localhost dev
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[frontend_url] if frontend_url != "*" else ["*"],
+    allow_origin_regex=r"^https?://(localhost(:\d+)?|.*\.preview\.emergentagent\.com)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

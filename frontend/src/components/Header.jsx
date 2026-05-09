@@ -35,7 +35,8 @@ export default function Header() {
 
           {user && user.email ? (
             <div className="flex items-center gap-3">
-              <span className="text-sm text-[#86868b]" data-testid="user-email">{user.name || user.email}</span>
+              <span className="text-sm text-[#111] font-medium" data-testid="user-name">{user.name}</span>
+              <span className="text-xs text-[#86868b] hidden lg:inline" data-testid="user-email">{user.email}</span>
               <button onClick={logout} className="nav-link inline-flex items-center gap-1" data-testid="nav-logout">
                 <LogOut size={15} strokeWidth={1.5} /> Salir
               </button>
