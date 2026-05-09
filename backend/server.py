@@ -560,10 +560,10 @@ async def root():
 app.include_router(api_router)
 
 
-# ---------- Sitemap & robots (SEO, not under /api) ----------
+# ---------- Sitemap & robots (SEO) — under /api so kubernetes ingress forwards them ----------
 from fastapi.responses import Response as PlainResponse
 
-@app.get("/sitemap.xml")
+@app.get("/api/sitemap.xml")
 async def sitemap():
     base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
     static_paths = ["/", "/explorar", "/tendencias", "/categorias", "/buscar", "/suscribirse", "/entrar"]
@@ -584,10 +584,10 @@ async def sitemap():
     return PlainResponse(content=xml, media_type="application/xml")
 
 
-@app.get("/robots.txt")
+@app.get("/api/robots.txt")
 async def robots():
     base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
-    txt = f"User-agent: *\nAllow: /\nSitemap: {base}/sitemap.xml\n"
+    txt = f"User-agent: *\nAllow: /\nSitemap: {base}/api/sitemap.xml\n"
     return PlainResponse(content=txt, media_type="text/plain")
 
 # CORS — accept any *.preview.emergentagent.com host plus localhost dev
