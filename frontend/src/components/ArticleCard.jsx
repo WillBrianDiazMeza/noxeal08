@@ -1,6 +1,15 @@
 import { Link } from "react-router-dom";
 import { ArrowUpRight } from "lucide-react";
 
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
+const FALLBACK_IMG = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=1200&q=80";
+
+const resolveImg = (src) => {
+  if (!src) return FALLBACK_IMG;
+  if (src.startsWith("http")) return src;
+  return `${BACKEND_URL}${src}`;
+};
+
 function formatDate(iso) {
   if (!iso) return "";
   try {
