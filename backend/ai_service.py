@@ -99,6 +99,11 @@ async def generate_article_draft(topic: str) -> dict:
     # Sanity defaults
     data.setdefault("tags", [])
     data.setdefault("body", [])
+    # Defensive: if AI returned body as a single string, wrap it
+    if isinstance(data.get("body"), str):
+        data["body"] = [p.strip() for p in re.split(r"\n\s*\n", data["body"]) if p.strip()]
+    if not isinstance(data.get("tags"), list):
+        data["tags"] = []
     data.setdefault("meta_description", data.get("excerpt", ""))
     data.setdefault("image_prompt", topic)
     data.setdefault("image_keyword", topic.split()[0] if topic else "noxeal")

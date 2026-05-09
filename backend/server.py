@@ -476,6 +476,13 @@ async def admin_regenerate_image(slug: str, _admin: dict = Depends(require_admin
     if not article:
         raise HTTPException(status_code=404, detail="Artículo no encontrado")
     prompt = article.get("image_prompt") or article.get("title", "")
+    # Clean up previous AI image to avoid orphaned files
+    prev = article.get("image", "") or ""
+    if prev.startswith("/api/static/images/"):
+        try:
+            (ai_service.STATIC_IMAGES_DIR / prev.split("/")[-1]).unlink(missing_ok=True)
+        except Exception:
+            pass
     try:
         image_url = await ai_service.generate_image(prompt)
     except Exception as e:
