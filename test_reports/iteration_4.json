@@ -1,0 +1,56 @@
+{
+  "summary": "Iteration 4 full-stack testing — Resend emails, Make.com webhook, view tracking, public stats/config, hero singleton, RSS, dark footer, admin Make.com tab, hero/trending toggles. Backend: 14/15 NEW iter4 tests pass (93%) + 59/59 regression (iter1+2+3) all green. The single failure is a CRITICAL route-ordering bug where /api/articles/most-read is shadowed by /api/articles/{slug} declared 130 lines earlier — most-read endpoint returns 404 'Artículo no encontrado'. This cascades into the frontend: the new 'Lo más leído' section on the Home page silently fails to render (network panel shows 2x 404 on /api/articles/most-read?limit=4). Everything else verified working: /api/health (ok=true, service=noxeal-api), /api/public-config (returns hola@noxeal.com + 4 social URLs from env), /api/public-stats (reads=67799, subscribers=5252, stories=8 — boost values correctly applied: 47230 + 20569 real_views = 67799; 5247 + 5 real_subs = 5252), POST /api/articles/{slug}/view increments by 1 each call (verified +2 after 2 calls), POST /api/articles/{nonexistent}/view returns 200 + {ok:false} (matches spec, NOT 404), /api/feed.rss returns valid RSS XML with content-type application/rss+xml + channel + items + real slugs in <link>. Make.com automation gate: no-key=401, wrong-key=401, correct-key=200 (Claude generation succeeded — LLM budget is healthy now, not exhausted). Hero singleton enforcement: setting hero=true on article B correctly flipped hero=false on article A (verified via /api/articles/featured). Email fire-and-forget: newsletter subscribe response time 311ms, login response 268ms — both well under 1500ms threshold so Resend is non-blocking. Frontend verified: Home stats strip shows '67.801 LECTURAS / 5254 SUSCRIPTORES / 8 HISTORIAS' in serif font on dark band; Footer is dark (#0d0d0f) with white text, NOXEAL logo, hola@noxeal.com mailto, 4 social icons with correct hrefs (instagram.com/noxael18, x.com/noxeal, tiktok.com/@noxael18, youtube.com/@noxeal); Article detail shows '1501 lecturas' counter and view-tracking POST fires (article views went 1501→1502 on visit); Newsletter form shows '¡Suscripción confirmada!' green sonner toast on submit; Admin panel has all 6 tabs (Artículos, Generar con IA, Comentarios, Suscriptores, Usuarios, Make.com), Make.com tab renders endpoint URLs + X-API-Key reference + 4 copy buttons + body JSON example + flow recommendations + security warning; admin article rows show 'Marcar hero' and 'Marcar trending' toggle buttons (10 of each on the list view), with active state pills 'Hero' on libro-negro-digital-epstein and 'Trending' on the appropriate articles. IA + Editor badge correctly absent on non-AI articles and present in admin DRAFT pills (IA tag visible on Make.com refuerza... and TikTok y la Generación Z drafts).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/articles/most-read", "issue": "Route is shadowed by /api/articles/{slug} which is declared earlier in server.py (line 264 vs line 394). FastAPI matches routes in declaration order, so the literal path 'most-read' is captured as a {slug} parameter and the slug-finder returns 404 'Artículo no encontrado'. Frontend Home 'Lo más leído' section silently fails (2x 404 in network panel). FIX: move @api_router.get('/articles/most-read') ABOVE @api_router.get('/articles/{slug}') in server.py, or rename the route to /api/articles-most-read or /api/articles/_most-read. Same hazard applies to /articles/featured (line 253) which luckily was declared BEFORE /articles/{slug} so it works — keep that pattern.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "Multiple", "issue": "After hero singleton test, the test restores hero=true on libro-negro-digital-epstein (default). If a future test reorders, default hero may shift — fine for now."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Home page 'Lo más leído' section", "issue": "Section silently does not render because GET /api/articles/most-read?limit=4 returns 404 (see CRITICAL backend bug). After the backend route ordering is fixed, this section should appear automatically — frontend code path is correct but receives empty array on 404.", "selector": "section containing 'Lo más leído'", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [
+      {"flow": "Home → Lo más leído", "issue": "Frontend handles the 404 gracefully (no crash, no console error spam beyond the network failure log) but also no fallback — section is just absent. Consider rendering a skeleton or hiding numerically only when data.length>0 (which is the current behavior, just confusingly invisible).", "affected_selectors": ["/api/articles/most-read"]}
+    ],
+    "design_issues": [
+      {"screen": "Home stats strip", "issues": ["Reads number shows '67.801' (Spanish dot-thousands) — looks correct. Stats band has good contrast (white serif on near-black). Spacing & alignment OK."]},
+      {"screen": "Footer", "issues": ["Dark theme correct (#0d0d0f bg), text contrast WCAG-OK, 4 social icons aligned, contact mailto styled. Looks production-ready."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration4.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_iteration2.py",
+    "/app/backend/tests/test_iteration3.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Fix route ordering in /app/backend/server.py — move @api_router.get('/articles/most-read') (line 394) ABOVE @api_router.get('/articles/{slug}') (line 264). Currently /api/articles/most-read returns 404 because FastAPI matches the slug route first. After fixing, re-run pytest /app/backend/tests/test_iteration4.py::test_most_read_top_n — should pass and the Home page 'Lo más leído' section will start rendering.",
+    "[Optional] Same route-ordering hazard could bite future endpoints — add a comment near @api_router.get('/articles/{slug}') warning that any literal-path /articles/X route MUST be declared above it.",
+    "[Optional] On Home, when /api/articles/most-read returns empty/error, render a small fallback or hide the section header — currently the heading '01 02 03' numbers exist as static markup but the data list is empty silently."
+  ],
+  "critical_code_review_comments": [
+    "server.py route ordering: /articles/{slug} at line 264 captures literal sub-paths declared after it (most-read at 394). FastAPI does NOT auto-prioritize literal paths — fix declaration order or use distinct prefixes.",
+    "/api/automation/articles/generate has NO rate limit. A leaked MAKE_API_KEY would allow unlimited Claude calls draining EMERGENT_LLM_KEY budget. Add a per-key throttle (eg. 10 articles/hour).",
+    "email_service notify_admin_* functions are fired via background tasks but should also have a bounded thread pool to prevent unbounded task accumulation if Resend is slow/down.",
+    "/api/public-stats hardcodes boost values 47230 / 5247 in code. Consider moving to env so they can be incremented over time without redeploy.",
+    "/api/feed.rss generates XML via string concatenation — works but vulnerable to XML-injection if any article title/category contains special chars (<, >, &). Use xml.etree.ElementTree or feedgen library.",
+    "server.py is now ~1048 lines — split into routers/{auth,articles,admin,automation,seo,public}.py. Mixing public + admin + automation in one file makes auth surface harder to audit.",
+    "MAKE_API_KEY is checked via constant string compare — could leak via timing. Use hmac.compare_digest.",
+    "PUBLIC_STATUS_FILTER must include status:'published' check on increment_view path — currently it does (verified) but make sure unpublishing an article also stops view increments (it does — confirmed by 200 + ok:false on filter mismatch)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration4.py (NEW — 15 tests covering health, public-config, public-stats, view tracking, most-read, RSS feed, Make.com auth gate × 5, hero singleton, email-fire-and-forget response time × 2)",
+    "/app/test_reports/pytest/iter4_results.xml (NEW)"
+  ],
+  "success_rate": {"backend": "93% (14/15 iter4 + 59/59 regression = 73/74 total) — single failure is the most-read route-shadowing bug", "frontend": "92% — Home stats strip + dark footer + admin Make.com tab + hero singleton UI + newsletter toast + view tracking all work; the only failure is Home 'Lo más leído' section silently absent, caused by the backend most-read 404"},
+  "test_credentials": "admin@noxeal.com / Noxeal2026! (verified). Make.com X-API-Key: noxeal-make-7f3a9b2c8d4e5f6a1b9c3d8e7f2a5b6c (verified — correct key returned 200 with full article generation, wrong/missing keys return 401).",
+  "seed_data_creation": "test_iteration4 created 1 published article via Make.com Claude generation (slug auto-generated from 'Test Make.com auth gate validation') + 2-3 TEST_ prefixed newsletter subscribers. Article DB count went from 8→9→10 over the run. Admin panel screenshot shows 10 articles total (8 sample + 2 AI-generated drafts left from main agent's dev work + 1 from automation test).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/ -v --tb=short (takes ~150s with AI tests). Iteration 4 file is /app/backend/tests/test_iteration4.py. The single CRITICAL bug is route ordering for /api/articles/most-read — easy fix, then test_most_read_top_n + Home 'Lo más leído' both unblock. EMERGENT_LLM_KEY budget is healthy as of 2026-05-09 (Claude generation via /api/automation/articles/generate succeeded). Resend API key is wired, but emails are fire-and-forget — verified by sub-500ms response on subscribe/login. Admin frontend has 6 tabs, Make.com tab is functional with copy buttons + endpoint docs. Hero singleton enforcement works on both backend (PUT /admin/articles/{slug} {hero:true} flips others) and visible UI (only one Hero pill at a time).",
+  "rca of the issue": "ROOT CAUSE: /app/backend/server.py declares @api_router.get('/articles/{slug}') at line 264 and @api_router.get('/articles/most-read') at line 394. FastAPI/Starlette matches routes in registration order — so a request to /api/articles/most-read is matched against the {slug} pattern first, slug='most-read' is passed to get_article_by_slug(slug), which queries db.articles for {'slug':'most-read'} → returns nothing → raises HTTPException(404, 'Artículo no encontrado'). REPRODUCTION: curl https://trending-news-3.preview.emergentagent.com/api/articles/most-read?limit=4 → 404 {detail:'Artículo no encontrado'}. MITIGATION: move the most-read decorator + function definition above the slug decorator (literal paths must precede parameterized paths), OR rename the route to /api/articles-most-read or /api/most-read. Same fix already worked for /articles/featured and /articles/{slug}/related which are declared BEFORE the {slug} catch-all (related uses /{slug}/related so the suffix differentiates it; featured uses literal 'featured' before {slug} — that pattern works). After fix, re-run /app/backend/tests/test_iteration4.py::test_most_read_top_n; expected to pass and Home 'Lo más leído' section will render automatically without any frontend change."
+}

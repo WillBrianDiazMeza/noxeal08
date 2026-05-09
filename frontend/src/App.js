@@ -1,6 +1,7 @@
 import "@/App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
+import { Toaster } from "sonner";
 import { AuthProvider } from "@/contexts/AuthContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -21,6 +22,7 @@ function App() {
     <div className="App">
       <HelmetProvider>
         <AuthProvider>
+          <Toaster position="bottom-right" richColors closeButton />
           <BrowserRouter>
           <Header />
           <Routes>

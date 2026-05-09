@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Sparkles, FileText, Eye, EyeOff, Trash2, RefreshCw, Image as ImageIcon, X, Lightbulb, Edit3 } from "lucide-react";
+import { Sparkles, FileText, Eye, EyeOff, Trash2, RefreshCw, Image as ImageIcon, X, Lightbulb, Edit3, Star, Zap, Webhook, Copy } from "lucide-react";
+import { toast } from "sonner";
 import { api, formatApiError } from "@/lib/api";
 import SEO from "@/components/SEO";
 
@@ -10,6 +11,7 @@ const TABS = [
   { key: "comments", label: "Comentarios" },
   { key: "subscribers", label: "Suscriptores" },
   { key: "users", label: "Usuarios" },
+  { key: "make", label: "Make.com" },
 ];
 
 export default function Admin() {
@@ -66,6 +68,7 @@ export default function Admin() {
         {tab === "comments" && <CommentsPanel onMutate={loadStats} />}
         {tab === "subscribers" && <SubscribersPanel />}
         {tab === "users" && <UsersPanel />}
+        {tab === "make" && <MakeDocsPanel />}
       </section>
     </main>
   );
@@ -94,6 +97,9 @@ function ArticlesPanel({ onMutate }) {
     try {
       await api.post(`/admin/articles/${slug}/${action}`);
       await load(); onMutate();
+      toast.success(action === "publish" ? "Artículo publicado" : "Movido a borradores");
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || "Error");
     } finally { setBusySlug(""); }
   };
 
@@ -103,17 +109,32 @@ function ArticlesPanel({ onMutate }) {
     try {
       await api.delete(`/admin/articles/${slug}`);
       await load(); onMutate();
+      toast.success("Artículo eliminado");
+    } catch (e) {
+      toast.error("No se pudo eliminar");
     } finally { setBusySlug(""); }
   };
 
   const regenerateImage = async (slug) => {
     setBusySlug(slug);
+    toast.info("Generando imagen con IA…", { duration: 4000 });
     try {
       await api.post(`/admin/articles/${slug}/regenerate-image`);
       await load();
+      toast.success("Imagen generada");
     } catch (e) {
-      alert(formatApiError(e.response?.data?.detail) || "Error generando imagen");
+      toast.error(formatApiError(e.response?.data?.detail) || "Error generando imagen");
     } finally { setBusySlug(""); }
+  };
+
+  const toggleFlag = async (slug, flag, current) => {
+    try {
+      await api.put(`/admin/articles/${slug}`, { [flag]: !current });
+      await load();
+      toast.success(`${flag} ${!current ? "activado" : "desactivado"}`);
+    } catch (e) {
+      toast.error("No se pudo actualizar");
+    }
   };
 
   return (
@@ -160,6 +181,12 @@ function ArticlesPanel({ onMutate }) {
                   )}
                   <button onClick={() => regenerateImage(a.slug)} disabled={busySlug === a.slug} className="text-xs px-3 py-1.5 rounded-full border border-black/10 inline-flex items-center gap-1" data-testid={`regen-image-${a.slug}`}>
                     <RefreshCw size={12} className={busySlug === a.slug ? "animate-spin" : ""} /> {busySlug === a.slug ? "Generando…" : "Regenerar imagen IA"}
+                  </button>
+                  <button onClick={() => toggleFlag(a.slug, "hero", a.hero)} className={`text-xs px-3 py-1.5 rounded-full inline-flex items-center gap-1 ${a.hero ? "bg-amber-100 border border-amber-300 text-amber-900" : "border border-black/10"}`} data-testid={`toggle-hero-${a.slug}`}>
+                    <Star size={12} /> {a.hero ? "Hero" : "Marcar hero"}
+                  </button>
+                  <button onClick={() => toggleFlag(a.slug, "trending", a.trending)} className={`text-xs px-3 py-1.5 rounded-full inline-flex items-center gap-1 ${a.trending ? "bg-rose-100 border border-rose-300 text-rose-900" : "border border-black/10"}`} data-testid={`toggle-trending-${a.slug}`}>
+                    <Zap size={12} /> {a.trending ? "Trending" : "Marcar trending"}
                   </button>
                   <Link to={`/articulo/${a.slug}`} target="_blank" className="text-xs px-3 py-1.5 rounded-full border border-black/10 inline-flex items-center gap-1" data-testid={`view-${a.slug}`}>
                     <FileText size={12} /> Ver
@@ -303,9 +330,11 @@ function EditArticleModal({ article, onClose, onSaved }) {
         image: form.image,
         meta_description: form.meta_description,
       });
+      toast.success("Cambios guardados");
       onSaved();
     } catch (e) {
-      setError(formatApiError(e.response?.data?.detail) || e.message);
+      const msg = formatApiError(e.response?.data?.detail) || e.message;
+      setError(msg); toast.error(msg);
     } finally { setSaving(false); }
   };
 
@@ -471,4 +500,92 @@ function resolveImage(src) {
   if (!src) return "";
   if (src.startsWith("http")) return src;
   return `${process.env.REACT_APP_BACKEND_URL || ""}${src}`;
+}
+
+/* ============== MAKE.COM DOCS PANEL ============== */
+function MakeDocsPanel() {
+  const base = process.env.REACT_APP_BACKEND_URL || "";
+  const apiKey = "noxeal-make-7f3a9b2c8d4e5f6a1b9c3d8e7f2a5b6c";
+
+  const copy = (text, label) => {
+    navigator.clipboard.writeText(text);
+    toast.success(`${label} copiado al portapapeles`);
+  };
+
+  const generateUrl = `${base}/api/automation/articles/generate`;
+  const publishUrl = `${base}/api/automation/articles/{slug}/publish`;
+  const generateBody = JSON.stringify({ topic: "Tema detectado en Google Trends", publish: false, generate_image: false }, null, 2);
+
+  return (
+    <div className="space-y-8 max-w-4xl" data-testid="make-docs-panel">
+      <div className="border border-black/10 rounded-3xl p-8 bg-white">
+        <div className="flex items-center gap-2 mb-3"><Webhook size={20} /><h2 className="h-display text-2xl">Conexión Make.com / Zapier</h2></div>
+        <p className="text-[15px] text-[#424245] leading-relaxed mb-6">
+          Tienes un endpoint listo para que Make.com detecte una tendencia (Google Trends RSS, X, etc.),
+          envíe el tema a Noxeal, Claude Sonnet 4.5 lo convierta en un borrador y aparezca aquí en
+          /admin para que tú lo revises y publiques.
+        </p>
+
+        <div className="space-y-5">
+          <KV label="Endpoint generación" value={generateUrl} onCopy={(v) => copy(v, "URL")} testid="make-url-generate" />
+          <KV label="Endpoint publicar" value={publishUrl} onCopy={(v) => copy(v, "URL")} testid="make-url-publish" />
+          <KV label="Header de autenticación" value={`X-API-Key: ${apiKey}`} onCopy={(v) => copy(v, "API key")} testid="make-api-key" sensitive />
+          <KV label="Método" value="POST" testid="make-method" />
+        </div>
+      </div>
+
+      <div className="border border-black/10 rounded-3xl p-8 bg-white">
+        <h3 className="h-display text-xl mb-4">Body JSON (request)</h3>
+        <pre className="bg-[#0d0d0f] text-emerald-300 p-5 rounded-2xl text-xs font-mono overflow-x-auto" data-testid="make-body-example">{generateBody}</pre>
+        <button onClick={() => copy(generateBody, "Body JSON")} className="mt-3 btn-secondary inline-flex items-center gap-2" data-testid="copy-body">
+          <Copy size={14} /> Copiar body
+        </button>
+        <p className="text-xs text-[#86868b] mt-4">
+          <strong>topic</strong> · el tema/título a redactar (string, requerido).<br/>
+          <strong>publish</strong> · si <code>true</code> se publica directo, si <code>false</code> queda como borrador (recomendado).<br/>
+          <strong>generate_image</strong> · si <code>true</code> Nano Banana genera la imagen también (más lento, ~30-60s extra).
+        </p>
+      </div>
+
+      <div className="border border-black/10 rounded-3xl p-8 bg-white">
+        <h3 className="h-display text-xl mb-4">Flujo recomendado en Make.com</h3>
+        <ol className="space-y-3 text-[15px] text-[#1a1a1a]">
+          <li><strong>1.</strong> Trigger: <em>RSS &gt; Watch RSS feed</em> apuntando a Google Trends RSS de tu país (ej. <code>https://trends.google.com/trending/rss?geo=ES</code>).</li>
+          <li><strong>2.</strong> Filtro: solo temas que matchean ciertas palabras clave (IA, política, redes, deepfakes, etc.).</li>
+          <li><strong>3.</strong> HTTP Request → POST al endpoint de arriba con el header X-API-Key y el body JSON.</li>
+          <li><strong>4.</strong> Telegram/Email → notificarte que llegó un borrador nuevo a revisar.</li>
+          <li><strong>5.</strong> Tú entras a /admin → Artículos → revisas → click "Publicar".</li>
+        </ol>
+      </div>
+
+      <div className="border border-amber-200 bg-amber-50 rounded-3xl p-6 text-[14px] text-amber-900">
+        <strong>⚠️ Mantén segura tu API key.</strong> Cualquiera con esta key puede crear borradores en tu sitio.
+        Si se filtra, cambia el valor de <code>MAKE_API_KEY</code> en <code>/app/backend/.env</code>.
+      </div>
+    </div>
+  );
+}
+
+function KV({ label, value, onCopy, testid, sensitive }) {
+  const [shown, setShown] = useState(!sensitive);
+  return (
+    <div data-testid={testid}>
+      <div className="label-eyebrow mb-2">{label}</div>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 px-4 py-3 bg-[#f5f5f7] rounded-2xl text-[13px] font-mono break-all">
+          {sensitive && !shown ? "•".repeat(Math.min(40, value.length)) : value}
+        </code>
+        {sensitive && (
+          <button onClick={() => setShown((s) => !s)} className="text-xs px-3 py-2 rounded-full border border-black/10 hover:bg-black/5" data-testid={`${testid}-toggle`}>
+            {shown ? "Ocultar" : "Mostrar"}
+          </button>
+        )}
+        {onCopy && (
+          <button onClick={() => onCopy(value)} className="text-xs px-3 py-2 rounded-full border border-black/10 hover:bg-black/5 inline-flex items-center gap-1" data-testid={`${testid}-copy`}>
+            <Copy size={12} /> Copiar
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }

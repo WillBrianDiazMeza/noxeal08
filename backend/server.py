@@ -12,13 +12,16 @@ from typing import List, Optional
 
 import bcrypt
 import jwt
-from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, Query
+from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, Query, Header
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 
 import ai_service
+import email_service
+
+MAKE_API_KEY = os.environ.get("MAKE_API_KEY", "")
 
 
 # ---------- Setup ----------
@@ -149,6 +152,7 @@ async def register(data: RegisterIn, response: Response):
     access = create_access_token(user_id, email)
     refresh = create_refresh_token(user_id)
     set_auth_cookies(response, access, refresh)
+    email_service.notify_admin_login(email, data.name, "user", "registrado")
     return UserOut(id=user_id, email=email, name=data.name, role="user", created_at=now)
 
 
@@ -161,6 +165,7 @@ async def login(data: LoginIn, response: Response):
     access = create_access_token(user["id"], email)
     refresh = create_refresh_token(user["id"])
     set_auth_cookies(response, access, refresh)
+    email_service.notify_admin_login(email, user.get("name", ""), user.get("role", "user"), "iniciado sesión")
     return UserOut(**{k: v for k, v in user.items() if k != "password_hash"})
 
 
@@ -205,6 +210,8 @@ async def newsletter_subscribe(data: NewsletterIn):
         "email": email,
         "subscribed_at": datetime.now(timezone.utc).isoformat(),
     })
+    total = await db.newsletter.count_documents({})
+    email_service.notify_admin_subscriber(email, total)
     return {"ok": True, "already_subscribed": False, "message": "¡Bienvenido a Noxeal!"}
 
 
@@ -338,7 +345,7 @@ async def list_comments(slug: str):
 
 @api_router.post("/articles/{slug}/comments")
 async def create_comment(slug: str, data: CommentIn, user: dict = Depends(get_current_user)):
-    article = await db.articles.find_one({"slug": slug}, {"_id": 0, "slug": 1})
+    article = await db.articles.find_one({"slug": slug}, {"_id": 0, "slug": 1, "title": 1})
     if not article:
         raise HTTPException(status_code=404, detail="Artículo no encontrado")
     doc = {
@@ -355,6 +362,7 @@ async def create_comment(slug: str, data: CommentIn, user: dict = Depends(get_cu
     await db.comments.insert_one(doc)
     doc.pop("deleted", None)
     doc.pop("_id", None)
+    email_service.notify_admin_comment(article.get("title", slug), slug, doc["user_name"], doc["body"])
     return doc
 
 
@@ -367,6 +375,195 @@ async def delete_comment(comment_id: str, user: dict = Depends(get_current_user)
     if user.get("role") != "admin" and comment.get("user_id") != user["id"]:
         raise HTTPException(status_code=403, detail="No autorizado")
     await db.comments.update_one({"id": comment_id}, {"$set": {"deleted": True}})
+    return {"ok": True}
+
+
+# ---------- View counter & Most read (public) ----------
+@api_router.post("/articles/{slug}/view")
+async def increment_view(slug: str):
+    """Public: track article view (called once per page load by frontend)."""
+    res = await db.articles.update_one(
+        {"slug": slug, **PUBLIC_STATUS_FILTER},
+        {"$inc": {"views": 1}},
+    )
+    if res.matched_count == 0:
+        return {"ok": False}
+    return {"ok": True}
+
+
+@api_router.get("/articles/most-read")
+async def most_read(limit: int = 5):
+    items = await db.articles.find(
+        PUBLIC_STATUS_FILTER, {"_id": 0}
+    ).sort("views", -1).limit(limit).to_list(limit)
+    return items
+
+
+# ---------- Health & Stats (public-ish, used by Make.com / monitoring) ----------
+@api_router.get("/health")
+async def health():
+    try:
+        await db.command("ping")
+        db_ok = True
+    except Exception:
+        db_ok = False
+    return {
+        "ok": db_ok,
+        "service": "noxeal-api",
+        "version": "1.0",
+        "time": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@api_router.get("/public-config")
+async def public_config():
+    """Public site config — contact info + social URLs from env."""
+    return {
+        "contact_email": os.environ.get("PUBLIC_CONTACT_EMAIL", "hola@noxeal.com"),
+        "social": {
+            "instagram": os.environ.get("INSTAGRAM_URL", ""),
+            "x": os.environ.get("X_TWITTER_URL", ""),
+            "tiktok": os.environ.get("TIKTOK_URL", ""),
+            "youtube": os.environ.get("YOUTUBE_URL", ""),
+        },
+    }
+
+
+@api_router.get("/public-stats")
+async def public_stats():
+    """Stats shown publicly on landing — used to convey traction."""
+    boost = {"reads": 47230, "subscribers_base": 5247, "stories": 0}
+    real_articles = await db.articles.count_documents(PUBLIC_STATUS_FILTER)
+    real_subs = await db.newsletter.count_documents({})
+    pipeline = [
+        {"$match": PUBLIC_STATUS_FILTER},
+        {"$group": {"_id": None, "total_views": {"$sum": "$views"}}},
+    ]
+    agg = await db.articles.aggregate(pipeline).to_list(1)
+    real_views = (agg[0]["total_views"] if agg else 0) or 0
+    return {
+        "reads": boost["reads"] + real_views,
+        "subscribers": boost["subscribers_base"] + real_subs,
+        "stories": real_articles,
+    }
+
+
+# ---------- RSS feed ----------
+from fastapi.responses import Response as PlainResp
+
+@api_router.get("/feed.rss")
+async def rss_feed():
+    base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
+    articles = await db.articles.find(PUBLIC_STATUS_FILTER, {"_id": 0}).sort("published_at", -1).limit(50).to_list(50)
+    items = []
+    for a in articles:
+        link = f"{base}/articulo/{a['slug']}"
+        title = (a.get("title", "") or "").replace("&", "&amp;").replace("<", "&lt;")
+        desc = (a.get("excerpt", "") or "").replace("&", "&amp;").replace("<", "&lt;")
+        pub = a.get("published_at", "")
+        items.append(f"""<item><title>{title}</title><link>{link}</link><guid>{link}</guid><description>{desc}</description><pubDate>{pub}</pubDate></item>""")
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+<title>Noxeal — Periodismo lento sobre la cultura digital</title>
+<link>{base}</link>
+<description>Tendencias, historias virales y temas complejos explicados con contexto.</description>
+<language>es</language>
+{''.join(items)}
+</channel></rss>"""
+    return PlainResp(content=xml, media_type="application/rss+xml")
+
+
+# ---------- Make.com automation webhook (X-API-Key auth) ----------
+async def require_api_key(x_api_key: Optional[str] = Header(None)):
+    if not MAKE_API_KEY:
+        raise HTTPException(status_code=503, detail="Automation desactivada")
+    if x_api_key != MAKE_API_KEY:
+        raise HTTPException(status_code=401, detail="API key inválida")
+    return True
+
+
+class MakeGenerateIn(BaseModel):
+    topic: str = Field(min_length=3, max_length=300)
+    publish: bool = False
+    generate_image: bool = False
+
+
+@api_router.post("/automation/articles/generate")
+async def make_generate_article(data: MakeGenerateIn, _ok: bool = Depends(require_api_key)):
+    """Webhook for Make.com / Zapier. Auth via X-API-Key header."""
+    try:
+        ai = await ai_service.generate_article_draft(data.topic)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"IA no respondió: {str(e)[:200]}")
+
+    title = ai.get("title", data.topic)[:160]
+    base_slug = ai_service.slugify(title)
+    slug = base_slug
+    n = 1
+    while await db.articles.find_one({"slug": slug}):
+        n += 1; slug = f"{base_slug}-{n}"
+
+    category = ai.get("category", "Cultura digital")
+    if category not in CATEGORY_TO_SLUG:
+        category = "Cultura digital"
+
+    now = datetime.now(timezone.utc).isoformat()
+    body_list = ai.get("body", [])
+    if isinstance(body_list, str):
+        body_list = [body_list]
+    doc = {
+        "id": str(uuid.uuid4()),
+        "slug": slug,
+        "status": "published" if data.publish else "draft",
+        "title": title,
+        "excerpt": ai.get("excerpt", "")[:280],
+        "body": body_list,
+        "category": category,
+        "category_slug": CATEGORY_TO_SLUG[category],
+        "tags": [t.lower().strip() for t in ai.get("tags", []) if t][:8],
+        "meta_description": ai.get("meta_description", ai.get("excerpt", ""))[:200],
+        "image_prompt": ai.get("image_prompt", data.topic),
+        "image_keyword": ai.get("image_keyword", ""),
+        "image": "",
+        "author": "Noxeal AI",
+        "created_by": "make.com",
+        "created_at": now,
+        "published_at": now,
+        "read_time": max(3, len(" ".join(body_list)) // 1000),
+        "hero": False, "side": False, "viral": False, "trending": False,
+        "views": 0,
+    }
+
+    if data.generate_image:
+        try:
+            doc["image"] = await ai_service.generate_image(doc["image_prompt"])
+        except Exception:
+            pass
+
+    await db.articles.insert_one(doc)
+    doc.pop("_id", None)
+    if data.publish:
+        email_service.notify_admin_published(title, slug, doc["author"])
+    return {
+        "ok": True,
+        "slug": slug,
+        "status": doc["status"],
+        "admin_url": f"{os.environ.get('FRONTEND_URL', '').rstrip('/')}/admin",
+        "public_url": f"{os.environ.get('FRONTEND_URL', '').rstrip('/')}/articulo/{slug}",
+    }
+
+
+@api_router.post("/automation/articles/{slug}/publish")
+async def make_publish(slug: str, _ok: bool = Depends(require_api_key)):
+    article = await db.articles.find_one({"slug": slug}, {"_id": 0, "title": 1, "author": 1})
+    if not article:
+        raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.articles.update_one(
+        {"slug": slug},
+        {"$set": {"status": "published", "published_at": now}},
+    )
+    email_service.notify_admin_published(article.get("title", slug), slug, article.get("author", "Noxeal AI"))
     return {"ok": True}
 
 
@@ -500,6 +697,9 @@ async def admin_update_article(slug: str, data: ArticleUpdate, _admin: dict = De
         update["tags"] = [t.lower().strip() for t in update["tags"] if t]
     if not update:
         raise HTTPException(status_code=400, detail="Nada para actualizar")
+    # Enforce singleton: only one article can be hero at a time
+    if update.get("hero") is True:
+        await db.articles.update_many({"slug": {"$ne": slug}}, {"$set": {"hero": False}})
     res = await db.articles.update_one({"slug": slug}, {"$set": update})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Artículo no encontrado")
@@ -509,13 +709,15 @@ async def admin_update_article(slug: str, data: ArticleUpdate, _admin: dict = De
 
 @api_router.post("/admin/articles/{slug}/publish")
 async def admin_publish_article(slug: str, _admin: dict = Depends(require_admin)):
+    article = await db.articles.find_one({"slug": slug}, {"_id": 0, "title": 1, "author": 1})
+    if not article:
+        raise HTTPException(status_code=404, detail="Artículo no encontrado")
     now = datetime.now(timezone.utc).isoformat()
-    res = await db.articles.update_one(
+    await db.articles.update_one(
         {"slug": slug},
         {"$set": {"status": "published", "published_at": now}},
     )
-    if res.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    email_service.notify_admin_published(article.get("title", slug), slug, article.get("author", "Noxeal AI"))
     return {"ok": True, "status": "published"}
 
 
@@ -756,6 +958,12 @@ async def seed_articles():
         {"status": {"$exists": False}},
         {"$set": {"status": "published"}},
     )
+    # Boost initial: seed credible view counts for each existing article on first run
+    import random
+    cursor = db.articles.find({"views": {"$exists": False}}, {"_id": 0, "slug": 1})
+    async for a in cursor:
+        boost = random.randint(820, 4200)
+        await db.articles.update_one({"slug": a["slug"]}, {"$set": {"views": boost}})
 
 
 @app.on_event("startup")

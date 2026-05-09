@@ -10,12 +10,16 @@ import NewsletterSection from "@/components/NewsletterSection";
 export default function Home() {
   const [data, setData] = useState({ hero: null, side: [], viral: [], latest: [] });
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState(null);
+  const [mostRead, setMostRead] = useState([]);
 
   useEffect(() => {
     api.get("/articles/featured")
       .then(({ data }) => setData(data))
       .catch(() => {})
       .finally(() => setLoading(false));
+    api.get("/public-stats").then(({ data }) => setStats(data)).catch(() => {});
+    api.get("/articles/most-read?limit=4").then(({ data }) => setMostRead(data || [])).catch(() => {});
   }, []);
 
   return (
@@ -63,6 +67,26 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ========== STATS STRIP (social proof) ========== */}
+      {stats && (
+        <section className="py-10 bg-[#0d0d0f] text-white" data-testid="stats-strip">
+          <div className="max-w-7xl mx-auto px-5 lg:px-8 grid grid-cols-3 gap-6 text-center">
+            <div>
+              <div className="h-display text-3xl md:text-5xl text-white" data-testid="stat-reads">{stats.reads.toLocaleString("es-ES")}</div>
+              <div className="label-eyebrow-dark mt-2">Lecturas</div>
+            </div>
+            <div className="border-x border-white/10">
+              <div className="h-display text-3xl md:text-5xl text-white" data-testid="stat-subs">{stats.subscribers.toLocaleString("es-ES")}</div>
+              <div className="label-eyebrow-dark mt-2">Suscriptores</div>
+            </div>
+            <div>
+              <div className="h-display text-3xl md:text-5xl text-white" data-testid="stat-stories">{stats.stories}</div>
+              <div className="label-eyebrow-dark mt-2">Historias</div>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* ========== EDITORIAL COVER ========== */}
       <section className="py-20 md:py-28" data-testid="editorial-cover-section">
         <div className="max-w-7xl mx-auto px-5 lg:px-8">
@@ -78,11 +102,7 @@ export default function Home() {
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12">
             <div className="lg:col-span-7">
-              {loading ? (
-                <SkeletonHero />
-              ) : (
-                <HeroEditorialCard article={data.hero} />
-              )}
+              {loading ? <SkeletonHero /> : <HeroEditorialCard article={data.hero} />}
             </div>
             <div className="lg:col-span-5 flex flex-col gap-10">
               {(data.side || []).slice(0, 3).map((a, i) => (
@@ -132,6 +152,34 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* ========== MOST READ ========== */}
+      {mostRead.length > 0 && (
+        <section className="py-24 bg-[#f5f5f7]" data-testid="most-read-section">
+          <div className="max-w-7xl mx-auto px-5 lg:px-8">
+            <div className="flex items-end justify-between mb-12">
+              <div>
+                <div className="label-eyebrow mb-3">Lo más leído</div>
+                <h2 className="h-display text-3xl md:text-4xl">Lo que más circula esta semana</h2>
+              </div>
+            </div>
+            <ol className="space-y-6">
+              {mostRead.map((a, i) => (
+                <li key={a.slug} className="grid grid-cols-[60px_1fr_auto] gap-6 items-center group" data-testid={`most-read-${i}`}>
+                  <span className="h-display text-5xl md:text-6xl text-black/15">{String(i + 1).padStart(2, "0")}</span>
+                  <Link to={`/articulo/${a.slug}`} className="block">
+                    <div className="label-eyebrow mb-1">{a.category}</div>
+                    <h3 className="h-display text-xl md:text-2xl group-hover:opacity-80 transition-opacity">{a.title}</h3>
+                  </Link>
+                  <span className="text-xs text-[#86868b] font-mono whitespace-nowrap">
+                    {(a.views || 0).toLocaleString("es-ES")} <span className="hidden md:inline">lecturas</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+      )}
 
       <NewsletterSection />
     </main>

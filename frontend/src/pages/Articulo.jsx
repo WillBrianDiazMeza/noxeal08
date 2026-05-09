@@ -24,7 +24,11 @@ export default function Articulo() {
     setLoading(true);
     setArticle(null);
     api.get(`/articles/${slug}`)
-      .then(({ data }) => setArticle(data))
+      .then(({ data }) => {
+        setArticle(data);
+        // Fire-and-forget view tracking
+        api.post(`/articles/${slug}/view`).catch(() => {});
+      })
       .catch(() => setError("Artículo no encontrado"))
       .finally(() => setLoading(false));
     window.scrollTo(0, 0);
@@ -56,11 +60,15 @@ export default function Articulo() {
           <h1 className="h-display text-4xl md:text-5xl lg:text-[64px] mb-8 leading-[1.05]" data-testid="article-title">
             {article.title}
           </h1>
-          <div className="flex items-center gap-3 text-sm text-[#86868b] mb-12">
+          <div className="flex items-center gap-3 text-sm text-[#86868b] mb-12 flex-wrap">
             <span data-testid="article-author">{article.author}</span>
+            {article.author === "Noxeal AI" && (
+              <span className="text-[10px] uppercase tracking-widest bg-black text-white px-2 py-0.5 rounded-full">IA + Editor</span>
+            )}
             <span>·</span>
             <span data-testid="article-date">{formatDate(article.published_at)}</span>
             {article.read_time && (<><span>·</span><span>{article.read_time} min de lectura</span></>)}
+            {typeof article.views === "number" && article.views > 0 && (<><span>·</span><span data-testid="article-views">{article.views.toLocaleString("es-ES")} lecturas</span></>)}
           </div>
         </div>
 

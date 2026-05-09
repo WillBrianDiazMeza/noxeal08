@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { api, formatApiError } from "@/lib/api";
 
 export default function NewsletterSection({ compact = false }) {
@@ -11,10 +12,14 @@ export default function NewsletterSection({ compact = false }) {
     setStatus({ kind: "loading", msg: "" });
     try {
       const { data } = await api.post("/newsletter/subscribe", { email });
-      setStatus({ kind: "success", msg: data.already_subscribed ? "Ya estabas suscrito. ¡Gracias!" : "¡Suscripción confirmada!" });
+      const msg = data.already_subscribed ? "Ya estabas suscrito. ¡Gracias!" : "¡Suscripción confirmada!";
+      setStatus({ kind: "success", msg });
+      toast.success(msg);
       setEmail("");
     } catch (e) {
-      setStatus({ kind: "error", msg: formatApiError(e.response?.data?.detail) || e.message });
+      const msg = formatApiError(e.response?.data?.detail) || e.message;
+      setStatus({ kind: "error", msg });
+      toast.error(msg);
     }
   };
 
