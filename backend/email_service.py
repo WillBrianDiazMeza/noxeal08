@@ -87,3 +87,32 @@ def notify_admin_published(title: str, slug: str, author: str):
 <p style="color:#86868b;">Autor: {author}</p>
 <p><a href="https://trending-news-3.preview.emergentagent.com/articulo/{slug}" style="color:#111;">Ver en el sitio →</a></p>"""
     fire(_send(ADMIN_NOTIFY_EMAIL, f"📰 Publicado: {title}", _wrap(msg)))
+
+
+async def send_newsletter_blast(article: dict, subscribers: list):
+    """Send the published article to all newsletter subscribers."""
+    base = "https://trending-news-3.preview.emergentagent.com"
+    title = article.get("title", "")
+    excerpt = article.get("excerpt", "")
+    slug = article.get("slug", "")
+    category = article.get("category", "")
+    image = article.get("image", "")
+    if image and image.startswith("/api/"):
+        image = base + image
+
+    img_html = f'<img src="{image}" alt="" style="width:100%;border-radius:14px;margin-bottom:18px;display:block;">' if image else ""
+    body = f"""<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.18em;color:#86868b;margin-bottom:12px;">{category}</div>
+{img_html}
+<h2 style="font-family:Georgia,serif;font-size:28px;line-height:1.1;margin:0 0 16px;color:#111;">{title}</h2>
+<p style="font-size:16px;line-height:1.55;color:#1a1a1a;margin:0 0 22px;">{excerpt}</p>
+<p style="margin:0 0 22px;">
+  <a href="{base}/articulo/{slug}" style="display:inline-block;padding:14px 26px;background:#111;color:#fff;border-radius:9999px;text-decoration:none;font-weight:500;font-size:15px;">Leer artículo →</a>
+</p>
+<p style="color:#86868b;font-size:13px;line-height:1.55;margin-top:32px;">Recibes este correo porque te suscribiste a la newsletter de Noxeal. Si no quieres más correos, ignora este mensaje.</p>"""
+
+    for sub in subscribers:
+        await _send(sub.get("email"), f"Noxeal · {title}", _wrap(body, title))
+
+
+def fire_newsletter_blast(article: dict, subscribers: list):
+    fire(send_newsletter_blast(article, subscribers))

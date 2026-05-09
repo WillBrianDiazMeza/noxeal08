@@ -14,12 +14,19 @@ export default function Home() {
   const [mostRead, setMostRead] = useState([]);
 
   useEffect(() => {
-    api.get("/articles/featured")
-      .then(({ data }) => setData(data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-    api.get("/public-stats").then(({ data }) => setStats(data)).catch(() => {});
-    api.get("/articles/most-read?limit=4").then(({ data }) => setMostRead(data || [])).catch(() => {});
+    const fetchAll = () => {
+      api.get("/articles/featured").then(({ data }) => setData(data)).catch(() => {});
+      api.get("/public-stats").then(({ data }) => setStats(data)).catch(() => {});
+      api.get("/articles/most-read?limit=4").then(({ data }) => setMostRead(data || [])).catch(() => {});
+    };
+    fetchAll();
+    setLoading(false);
+    // Real-time refresh every 45 seconds — picks up new articles published by admin/Make.com
+    const interval = setInterval(fetchAll, 45000);
+    // Also refresh when tab regains focus
+    const onFocus = () => fetchAll();
+    window.addEventListener("focus", onFocus);
+    return () => { clearInterval(interval); window.removeEventListener("focus", onFocus); };
   }, []);
 
   return (

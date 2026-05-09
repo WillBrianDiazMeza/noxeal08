@@ -95,9 +95,14 @@ function ArticlesPanel({ onMutate }) {
   const setStatus = async (slug, action) => {
     setBusySlug(slug);
     try {
-      await api.post(`/admin/articles/${slug}/${action}`);
+      const params = action === "publish" && window.confirm("¿Avisar a los suscriptores por email?") ? "?notify_subscribers=true" : "";
+      const { data } = await api.post(`/admin/articles/${slug}/${action}${params}`);
       await load(); onMutate();
-      toast.success(action === "publish" ? "Artículo publicado" : "Movido a borradores");
+      if (action === "publish") {
+        toast.success(data?.subscribers_notified ? "Publicado y enviado a suscriptores" : "Artículo publicado");
+      } else {
+        toast.success("Movido a borradores");
+      }
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail) || "Error");
     } finally { setBusySlug(""); }

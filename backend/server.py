@@ -7,6 +7,7 @@ load_dotenv(ROOT_DIR / '.env')
 import os
 import logging
 import uuid
+import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
@@ -567,6 +568,87 @@ async def make_publish(slug: str, _ok: bool = Depends(require_api_key)):
     return {"ok": True}
 
 
+class BulkGenerateIn(BaseModel):
+    topics: List[str]
+    publish: bool = False
+    generate_image: bool = False
+
+
+@api_router.post("/admin/articles/bulk-generate")
+async def admin_bulk_generate(data: BulkGenerateIn, admin: dict = Depends(require_admin)):
+    """Generate multiple draft articles in sequence. Returns a job receipt; processing happens in background."""
+    if not data.topics:
+        raise HTTPException(status_code=400, detail="Lista de temas vacía")
+    job_id = str(uuid.uuid4())
+    await db.bulk_jobs.insert_one({
+        "id": job_id,
+        "topics": data.topics,
+        "publish": data.publish,
+        "generate_image": data.generate_image,
+        "status": "running",
+        "completed": 0,
+        "total": len(data.topics),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "results": [],
+    })
+
+    async def runner():
+        for topic in data.topics:
+            try:
+                ai = await ai_service.generate_article_draft(topic)
+                title = ai.get("title", topic)[:160]
+                base_slug = ai_service.slugify(title)
+                slug = base_slug
+                n = 1
+                while await db.articles.find_one({"slug": slug}):
+                    n += 1; slug = f"{base_slug}-{n}"
+                category = ai.get("category", "Cultura digital")
+                if category not in CATEGORY_TO_SLUG:
+                    category = "Cultura digital"
+                now = datetime.now(timezone.utc).isoformat()
+                body_list = ai.get("body", [])
+                if isinstance(body_list, str):
+                    body_list = [body_list]
+                doc = {
+                    "id": str(uuid.uuid4()), "slug": slug,
+                    "status": "published" if data.publish else "draft",
+                    "title": title, "excerpt": ai.get("excerpt", "")[:280],
+                    "body": body_list, "category": category,
+                    "category_slug": CATEGORY_TO_SLUG[category],
+                    "tags": [t.lower().strip() for t in ai.get("tags", []) if t][:8],
+                    "meta_description": ai.get("meta_description", ai.get("excerpt", ""))[:200],
+                    "image_prompt": ai.get("image_prompt", topic),
+                    "image_keyword": ai.get("image_keyword", ""),
+                    "image": "",
+                    "author": "Noxeal AI", "created_by": admin["id"],
+                    "created_at": now, "published_at": now,
+                    "read_time": max(3, len(" ".join(body_list)) // 1000),
+                    "hero": False, "side": False, "viral": False, "trending": False,
+                    "views": 0,
+                }
+                if data.generate_image:
+                    try:
+                        doc["image"] = await ai_service.generate_image(doc["image_prompt"])
+                    except Exception:
+                        pass
+                await db.articles.insert_one(doc)
+                await db.bulk_jobs.update_one({"id": job_id}, {"$inc": {"completed": 1}, "$push": {"results": {"topic": topic, "slug": slug, "ok": True}}})
+            except Exception as e:
+                await db.bulk_jobs.update_one({"id": job_id}, {"$inc": {"completed": 1}, "$push": {"results": {"topic": topic, "ok": False, "error": str(e)[:200]}}})
+        await db.bulk_jobs.update_one({"id": job_id}, {"$set": {"status": "done", "finished_at": datetime.now(timezone.utc).isoformat()}})
+
+    asyncio.create_task(runner())
+    return {"job_id": job_id, "total": len(data.topics), "status": "running"}
+
+
+@api_router.get("/admin/bulk-jobs/{job_id}")
+async def admin_bulk_job_status(job_id: str, _admin: dict = Depends(require_admin)):
+    job = await db.bulk_jobs.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Trabajo no encontrado")
+    return job
+
+
 # ---------- Admin: Articles & AI generation ----------
 class GenerateArticleIn(BaseModel):
     topic: str = Field(min_length=3, max_length=300)
@@ -708,8 +790,8 @@ async def admin_update_article(slug: str, data: ArticleUpdate, _admin: dict = De
 
 
 @api_router.post("/admin/articles/{slug}/publish")
-async def admin_publish_article(slug: str, _admin: dict = Depends(require_admin)):
-    article = await db.articles.find_one({"slug": slug}, {"_id": 0, "title": 1, "author": 1})
+async def admin_publish_article(slug: str, _admin: dict = Depends(require_admin), notify_subscribers: bool = False):
+    article = await db.articles.find_one({"slug": slug}, {"_id": 0})
     if not article:
         raise HTTPException(status_code=404, detail="Artículo no encontrado")
     now = datetime.now(timezone.utc).isoformat()
@@ -717,8 +799,12 @@ async def admin_publish_article(slug: str, _admin: dict = Depends(require_admin)
         {"slug": slug},
         {"$set": {"status": "published", "published_at": now}},
     )
+    article["status"] = "published"; article["published_at"] = now
     email_service.notify_admin_published(article.get("title", slug), slug, article.get("author", "Noxeal AI"))
-    return {"ok": True, "status": "published"}
+    if notify_subscribers:
+        subs = await db.newsletter.find({}, {"_id": 0}).to_list(5000)
+        email_service.fire_newsletter_blast(article, subs)
+    return {"ok": True, "status": "published", "subscribers_notified": notify_subscribers}
 
 
 @api_router.post("/admin/articles/{slug}/unpublish")
@@ -928,6 +1014,28 @@ async def seed_admin():
             {"email": admin_email},
             {"$set": {"password_hash": hash_password(admin_password), "role": "admin"}},
         )
+
+    # Personal CEO account (the user's real email)
+    ceo_email = os.environ.get("CEO_EMAIL", "").lower().strip()
+    ceo_password = os.environ.get("CEO_PASSWORD", "")
+    ceo_name = os.environ.get("CEO_NAME", "Noxael")
+    if ceo_email and ceo_password:
+        existing_ceo = await db.users.find_one({"email": ceo_email})
+        if existing_ceo is None:
+            await db.users.insert_one({
+                "id": str(uuid.uuid4()),
+                "email": ceo_email,
+                "password_hash": hash_password(ceo_password),
+                "name": ceo_name,
+                "role": "admin",
+                "created_at": now,
+            })
+        else:
+            # Always promote to admin and reset password to env value (so password resets work via env)
+            await db.users.update_one(
+                {"email": ceo_email},
+                {"$set": {"role": "admin", "name": ceo_name}},
+            )
 
 
 async def seed_articles():

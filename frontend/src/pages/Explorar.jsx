@@ -16,15 +16,22 @@ export default function Explorar() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      api.get("/articles"),
-      api.get("/categories"),
-      api.get("/tags"),
-    ]).then(([a, c, t]) => {
-      setArticles(a.data || []);
-      setCategories(c.data || []);
-      setTags(t.data || []);
-    }).finally(() => setLoading(false));
+    const load = () => {
+      Promise.all([
+        api.get("/articles"),
+        api.get("/categories"),
+        api.get("/tags"),
+      ]).then(([a, c, t]) => {
+        setArticles(a.data || []);
+        setCategories(c.data || []);
+        setTags(t.data || []);
+      }).finally(() => setLoading(false));
+    };
+    load();
+    const interval = setInterval(load, 60000); // real-time
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => { clearInterval(interval); window.removeEventListener("focus", onFocus); };
   }, []);
 
   // Sync URL when filters change
