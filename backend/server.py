@@ -1,89 +1,457 @@
-from fastapi import FastAPI, APIRouter
 from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
-from datetime import datetime, timezone
-
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
+import os
+import logging
+import uuid
+from datetime import datetime, timezone, timedelta
+from typing import List, Optional
+
+import bcrypt
+import jwt
+from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, Query
+from starlette.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
+
+
+# ---------- Setup ----------
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# Create the main app without a prefix
-app = FastAPI()
+JWT_SECRET = os.environ['JWT_SECRET']
+JWT_ALGORITHM = "HS256"
 
-# Create a router with the /api prefix
+app = FastAPI(title="Noxeal API")
 api_router = APIRouter(prefix="/api")
 
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+# ---------- Helpers ----------
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
 
-# Add your routes to the router instead of directly to app
+def verify_password(plain: str, hashed: str) -> bool:
+    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+
+
+def create_access_token(user_id: str, email: str) -> str:
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=60 * 24),
+        "type": "access",
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def create_refresh_token(user_id: str) -> str:
+    payload = {
+        "sub": user_id,
+        "exp": datetime.now(timezone.utc) + timedelta(days=7),
+        "type": "refresh",
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def set_auth_cookies(response: Response, access: str, refresh: str):
+    response.set_cookie("access_token", access, httponly=True, secure=False, samesite="lax", max_age=60 * 60 * 24, path="/")
+    response.set_cookie("refresh_token", refresh, httponly=True, secure=False, samesite="lax", max_age=60 * 60 * 24 * 7, path="/")
+
+
+def clear_auth_cookies(response: Response):
+    response.delete_cookie("access_token", path="/")
+    response.delete_cookie("refresh_token", path="/")
+
+
+async def get_current_user(request: Request) -> dict:
+    token = request.cookies.get("access_token")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    if not token:
+        raise HTTPException(status_code=401, detail="No autenticado")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=401, detail="Tipo de token inválido")
+        user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+        if not user:
+            raise HTTPException(status_code=401, detail="Usuario no encontrado")
+        return user
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expirado")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+
+async def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Acceso de administrador requerido")
+    return user
+
+
+# ---------- Models ----------
+class RegisterIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6)
+    name: str = Field(min_length=1, max_length=80)
+
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    email: str
+    name: str
+    role: str
+    created_at: str
+
+
+class NewsletterIn(BaseModel):
+    email: EmailStr
+
+
+class NewsletterOut(BaseModel):
+    email: str
+    subscribed_at: str
+
+
+# ---------- Auth Endpoints ----------
+@api_router.post("/auth/register", response_model=UserOut)
+async def register(data: RegisterIn, response: Response):
+    email = data.email.lower().strip()
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=400, detail="El email ya está registrado")
+    user_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    await db.users.insert_one({
+        "id": user_id,
+        "email": email,
+        "password_hash": hash_password(data.password),
+        "name": data.name,
+        "role": "user",
+        "created_at": now,
+    })
+    access = create_access_token(user_id, email)
+    refresh = create_refresh_token(user_id)
+    set_auth_cookies(response, access, refresh)
+    return UserOut(id=user_id, email=email, name=data.name, role="user", created_at=now)
+
+
+@api_router.post("/auth/login", response_model=UserOut)
+async def login(data: LoginIn, response: Response):
+    email = data.email.lower().strip()
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    if not user or not verify_password(data.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+    access = create_access_token(user["id"], email)
+    refresh = create_refresh_token(user["id"])
+    set_auth_cookies(response, access, refresh)
+    return UserOut(**{k: v for k, v in user.items() if k != "password_hash"})
+
+
+@api_router.post("/auth/logout")
+async def logout(response: Response, _user: dict = Depends(get_current_user)):
+    clear_auth_cookies(response)
+    return {"ok": True}
+
+
+@api_router.get("/auth/me", response_model=UserOut)
+async def me(user: dict = Depends(get_current_user)):
+    return UserOut(**user)
+
+
+@api_router.post("/auth/refresh")
+async def refresh_token(request: Request, response: Response):
+    token = request.cookies.get("refresh_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="No hay refresh token")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="Tipo de token inválido")
+        user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
+        if not user:
+            raise HTTPException(status_code=401, detail="Usuario no encontrado")
+        new_access = create_access_token(user["id"], user["email"])
+        response.set_cookie("access_token", new_access, httponly=True, secure=False, samesite="lax", max_age=60 * 60 * 24, path="/")
+        return {"ok": True}
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+
+# ---------- Newsletter ----------
+@api_router.post("/newsletter/subscribe")
+async def newsletter_subscribe(data: NewsletterIn):
+    email = data.email.lower().strip()
+    existing = await db.newsletter.find_one({"email": email})
+    if existing:
+        return {"ok": True, "already_subscribed": True, "message": "Ya estás suscrito a Noxeal"}
+    await db.newsletter.insert_one({
+        "email": email,
+        "subscribed_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True, "already_subscribed": False, "message": "¡Bienvenido a Noxeal!"}
+
+
+@api_router.get("/newsletter/list", response_model=List[NewsletterOut])
+async def newsletter_list(_admin: dict = Depends(require_admin)):
+    items = await db.newsletter.find({}, {"_id": 0}).sort("subscribed_at", -1).to_list(1000)
+    return [NewsletterOut(**i) for i in items]
+
+
+# ---------- Articles ----------
+@api_router.get("/articles")
+async def list_articles(
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    trending: Optional[bool] = None,
+    limit: int = Query(50, le=100),
+):
+    q = {}
+    if category:
+        q["category_slug"] = category.lower()
+    if trending:
+        q["trending"] = True
+    if search:
+        q["$or"] = [
+            {"title": {"$regex": search, "$options": "i"}},
+            {"excerpt": {"$regex": search, "$options": "i"}},
+            {"category": {"$regex": search, "$options": "i"}},
+        ]
+    items = await db.articles.find(q, {"_id": 0}).sort("published_at", -1).to_list(limit)
+    return items
+
+
+@api_router.get("/articles/featured")
+async def featured_articles():
+    """Returns hero (1) + side (3) + viral (4) + latest (6)."""
+    hero = await db.articles.find_one({"hero": True}, {"_id": 0})
+    side = await db.articles.find({"side": True}, {"_id": 0}).limit(3).to_list(3)
+    viral = await db.articles.find({"viral": True}, {"_id": 0}).limit(4).to_list(4)
+    latest = await db.articles.find({}, {"_id": 0}).sort("published_at", -1).limit(6).to_list(6)
+    return {"hero": hero, "side": side, "viral": viral, "latest": latest}
+
+
+@api_router.get("/articles/{slug}")
+async def get_article(slug: str):
+    article = await db.articles.find_one({"slug": slug}, {"_id": 0})
+    if not article:
+        raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    return article
+
+
+@api_router.get("/categories")
+async def list_categories():
+    pipeline = [
+        {"$group": {"_id": {"slug": "$category_slug", "name": "$category"}, "count": {"$sum": 1}}},
+        {"$project": {"_id": 0, "slug": "$_id.slug", "name": "$_id.name", "count": 1}},
+        {"$sort": {"count": -1}},
+    ]
+    return await db.articles.aggregate(pipeline).to_list(50)
+
+
+# ---------- Seeders ----------
+SAMPLE_ARTICLES = [
+    {
+        "slug": "libro-negro-digital-epstein",
+        "category": "Investigación",
+        "category_slug": "investigacion",
+        "title": "Qué se sabe y qué no sobre el supuesto \"Libro Negro\" digital de Epstein",
+        "excerpt": "Recorrido por los documentos filtrados, las teorías que circulan en redes y las pruebas que sí han resistido el escrutinio público.",
+        "image": "https://images.unsplash.com/photo-1677064061401-f77f966ff8a1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwxfHxibGFjayUyMGxlYXRoZXIlMjBub3RlYm9va3xlbnwwfHx8fDE3NzgzMjY4NTB8MA&ixlib=rb-4.1.0&q=85",
+        "author": "Redacción Noxeal",
+        "read_time": 12,
+        "hero": True, "side": False, "viral": False, "trending": True,
+        "body": [
+            "Durante semanas, las redes sociales se han llenado de capturas y rumores sobre un supuesto archivo digital que recogería contactos, viajes y operaciones del entorno de Jeffrey Epstein. Separar lo verificado de lo viral es, hoy, el verdadero ejercicio periodístico.",
+            "Los documentos oficiales liberados por tribunales estadounidenses contienen miles de páginas, pero ninguno coincide exactamente con la narrativa que circula en TikTok o X. Lo que sí está documentado son listas de pasajeros, registros de vuelo y testimonios bajo juramento.",
+            "Este artículo distingue tres capas: lo confirmado por fuentes judiciales, lo plausible pero no probado, y lo que es directamente desinformación reciclada. La diferencia importa porque cambia por completo qué conclusiones podemos sacar.",
+        ],
+    },
+    {
+        "slug": "ia-autoconsciente-realidad-fantasia",
+        "category": "IA",
+        "category_slug": "ia",
+        "title": "IA autoconsciente: ¿realidad técnica o fantasía colectiva?",
+        "excerpt": "Lo que dicen los papers serios de 2025 frente a los hilos virales que aseguran que ChatGPT \"despertó\".",
+        "image": "https://images.unsplash.com/photo-1674027444485-cec3da58eef4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MDV8MHwxfHNlYXJjaHwyfHxhcnRpZmljaWFsJTIwaW50ZWxsaWdlbmNlJTIwYnJhaW58ZW58MHx8fHwxNzc4MzI2ODQ5fDA&ixlib=rb-4.1.0&q=85",
+        "author": "Redacción Noxeal",
+        "read_time": 8,
+        "hero": False, "side": True, "viral": True, "trending": True,
+        "body": [
+            "El término \"autoconsciente\" tiene un peso filosófico que la mayoría de hilos virales ignora. Antes de aceptarlo, conviene definir qué medimos.",
+            "Modelos como GPT-5 o Claude Opus 4.5 muestran capacidades emergentes, pero ninguna evaluación independiente reproducible ha demostrado conciencia en sentido fenomenológico.",
+        ],
+    },
+    {
+        "slug": "cbdc-privacidad-banco-no-dice",
+        "category": "Investigación",
+        "category_slug": "investigacion",
+        "title": "CBDC y privacidad: lo que tu banco no te está contando",
+        "excerpt": "Las monedas digitales de banco central avanzan en silencio. Esto es lo que cambian para tu dinero y tus datos.",
+        "image": "https://images.unsplash.com/photo-1765121689322-6befc57dc8db?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDR8MHwxfHNlYXJjaHwxfHxzdXJ2ZWlsbGFuY2UlMjBwcml2YWN5fGVufDB8fHx8MTc3ODMyNjg0NHww&ixlib=rb-4.1.0&q=85",
+        "author": "Redacción Noxeal",
+        "read_time": 10,
+        "hero": False, "side": True, "viral": True, "trending": True,
+        "body": [
+            "El BCE, la Reserva Federal y más de 130 bancos centrales investigan o pilotan CBDCs. La pregunta clave: ¿qué nivel de anonimato sobrevive?",
+            "Los diseños actuales contemplan trazabilidad por defecto. Eso cambia la naturaleza del efectivo tal y como lo conocemos.",
+        ],
+    },
+    {
+        "slug": "deepfakes-politicos-guerra-verdad",
+        "category": "Cultura digital",
+        "category_slug": "cultura-digital",
+        "title": "Deepfakes políticos: la nueva guerra por la verdad",
+        "excerpt": "Cómo los videos sintéticos están redefiniendo campañas, escándalos y el concepto mismo de evidencia.",
+        "image": "https://images.pexels.com/photos/17483870/pexels-photo-17483870.png",
+        "author": "Redacción Noxeal",
+        "read_time": 9,
+        "hero": False, "side": True, "viral": True, "trending": True,
+        "body": [
+            "En 2025 ya no necesitas un estudio para fabricar a un presidente diciendo cualquier cosa. Necesitas una GPU y treinta segundos.",
+            "El problema no es solo técnico: es epistémico. Cuando todo puede ser falso, el escepticismo se convierte en arma política.",
+        ],
+    },
+    {
+        "slug": "algoritmos-animo-redes-humor",
+        "category": "Salud y redes",
+        "category_slug": "salud-y-redes",
+        "title": "Algoritmos y ánimo: cómo las redes están moldeando tu humor",
+        "excerpt": "Estudios recientes muestran un patrón claro entre tiempo en feeds y caídas de bienestar emocional. Pero no es lineal.",
+        "image": "https://images.unsplash.com/photo-1762279388957-c6ed514d3353?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGRhdGElMjB0ZWNobm9sb2d5fGVufDB8fHx8MTc3ODMyNjg0NHww&ixlib=rb-4.1.0&q=85",
+        "author": "Redacción Noxeal",
+        "read_time": 7,
+        "hero": False, "side": False, "viral": True, "trending": False,
+        "body": [
+            "El feed no es neutral: optimiza retención, no bienestar. Esa diferencia se nota a las pocas semanas en cualquier persona.",
+        ],
+    },
+    {
+        "slug": "modelos-open-source-ascenso",
+        "category": "Tecnología",
+        "category_slug": "tecnologia",
+        "title": "El ascenso silencioso de los modelos open source",
+        "excerpt": "Mientras los gigantes acaparan titulares, una nueva generación de modelos abiertos está cambiando las reglas del mercado.",
+        "image": "https://images.unsplash.com/photo-1758073519996-6d3c63b4922c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMGRhdGElMjB0ZWNobm9sb2d5fGVufDB8fHx8MTc3ODMyNjg0NHww&ixlib=rb-4.1.0&q=85",
+        "author": "Redacción Noxeal",
+        "read_time": 6,
+        "hero": False, "side": False, "viral": False, "trending": True,
+        "body": [
+            "Llama, Mistral, Qwen y otras familias han cerrado la brecha de calidad mucho más rápido de lo que cualquier laboratorio cerrado anticipó.",
+        ],
+    },
+    {
+        "slug": "economia-atencion-donde-se-gana",
+        "category": "Cultura digital",
+        "category_slug": "cultura-digital",
+        "title": "La economía de la atención: dónde se gana hoy el dinero",
+        "excerpt": "El producto ya no eres tú: es tu siguiente segundo de scroll. Quién monetiza, cómo y a qué coste.",
+        "image": "https://images.unsplash.com/photo-1611746872915-64382b5c76da?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHw0fHxhYnN0cmFjdCUyMGRhdGElMjB0ZWNobm9sb2d5fGVufDB8fHx8MTc3ODMyNjg0NHww&ixlib=rb-4.1.0&q=85",
+        "author": "Redacción Noxeal",
+        "read_time": 7,
+        "hero": False, "side": False, "viral": False, "trending": False,
+        "body": [
+            "Plataformas, creadores y anunciantes pelean por el mismo recurso finito. La pregunta es quién paga el coste cognitivo.",
+        ],
+    },
+    {
+        "slug": "apple-vision-pro-fracaso-que-viene",
+        "category": "Tecnología",
+        "category_slug": "tecnologia",
+        "title": "Por qué Apple Vision Pro no despegó (y lo que viene ahora)",
+        "excerpt": "Análisis frío del primer round de Apple en spatial computing y por qué la segunda generación cambia las reglas.",
+        "image": "https://images.unsplash.com/photo-1707343844152-6d33a0bb32c1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHw1fHxhYnN0cmFjdCUyMGRhdGElMjB0ZWNobm9sb2d5fGVufDB8fHx8MTc3ODMyNjg0NHww&ixlib=rb-4.1.0&q=85",
+        "author": "Redacción Noxeal",
+        "read_time": 8,
+        "hero": False, "side": False, "viral": False, "trending": False,
+        "body": [
+            "$3500 sin app killer, peso incómodo y un mensaje confuso. Aún así, Apple no se retira de spatial computing.",
+        ],
+    },
+]
+
+
+async def seed_admin():
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@noxeal.com")
+    admin_password = os.environ.get("ADMIN_PASSWORD", "Noxeal2026!")
+    existing = await db.users.find_one({"email": admin_email})
+    now = datetime.now(timezone.utc).isoformat()
+    if existing is None:
+        await db.users.insert_one({
+            "id": str(uuid.uuid4()),
+            "email": admin_email,
+            "password_hash": hash_password(admin_password),
+            "name": "Admin Noxeal",
+            "role": "admin",
+            "created_at": now,
+        })
+    elif not verify_password(admin_password, existing["password_hash"]):
+        await db.users.update_one(
+            {"email": admin_email},
+            {"$set": {"password_hash": hash_password(admin_password), "role": "admin"}},
+        )
+
+
+async def seed_articles():
+    count = await db.articles.count_documents({})
+    if count > 0:
+        return
+    base_time = datetime.now(timezone.utc)
+    docs = []
+    for i, a in enumerate(SAMPLE_ARTICLES):
+        published = (base_time - timedelta(days=i)).isoformat()
+        docs.append({**a, "id": str(uuid.uuid4()), "published_at": published})
+    await db.articles.insert_many(docs)
+
+
+@app.on_event("startup")
+async def on_startup():
+    await db.users.create_index("email", unique=True)
+    await db.users.create_index("id", unique=True)
+    await db.articles.create_index("slug", unique=True)
+    await db.newsletter.create_index("email", unique=True)
+    await seed_admin()
+    await seed_articles()
+
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    client.close()
+
+
+# ---------- Mount ----------
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"name": "Noxeal API", "ok": True}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
-
-# Include the router in the main app
 app.include_router(api_router)
 
+# CORS — frontend lives on the same preview origin; allow it explicitly so cookies work
+frontend_url = os.environ.get("FRONTEND_URL", "*")
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=[frontend_url] if frontend_url != "*" else ["*"],
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()

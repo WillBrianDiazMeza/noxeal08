@@ -1,52 +1,58 @@
-import { useEffect } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
+import { AuthProvider } from "@/contexts/AuthContext";
+import Header from "@/components/Header";
+import Footer from "@/components/Footer";
+import Home from "@/pages/Home";
+import Explorar from "@/pages/Explorar";
+import Tendencias from "@/pages/Tendencias";
+import Categorias from "@/pages/Categorias";
+import Articulo from "@/pages/Articulo";
+import Buscar from "@/pages/Buscar";
+import Entrar from "@/pages/Entrar";
+import Suscribirse from "@/pages/Suscribirse";
+import Static from "@/pages/Static";
 
 function App() {
   return (
     <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <Header />
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/explorar" element={<Explorar />} />
+            <Route path="/tendencias" element={<Tendencias />} />
+            <Route path="/categorias" element={<Categorias />} />
+            <Route path="/buscar" element={<Buscar />} />
+            <Route path="/articulo/:slug" element={<Articulo />} />
+            <Route path="/entrar" element={<Entrar />} />
+            <Route path="/suscribirse" element={<Suscribirse />} />
+            <Route path="/contacto" element={
+              <Static title="Contacto" body={[
+                "Para colaboraciones editoriales, prensa o sugerencias de temas: hola@noxeal.com.",
+                "Respondemos en menos de 48 horas hábiles. Si tu mensaje es sobre un artículo específico, incluye el enlace.",
+              ]} />
+            } />
+            <Route path="/privacidad" element={
+              <Static title="Política de privacidad" body={[
+                "En Noxeal solo guardamos los datos estrictamente necesarios para que el servicio funcione: tu correo si te suscribes a la newsletter, y tu cuenta si decides registrarte.",
+                "No vendemos datos a terceros. No usamos cookies de seguimiento de redes publicitarias. Si quieres ejercer tus derechos de acceso, rectificación o eliminación, escríbenos.",
+              ]} />
+            } />
+            <Route path="/terminos" element={
+              <Static title="Términos de uso" body={[
+                "Al usar Noxeal aceptas leer críticamente. El contenido publicado es trabajo editorial original o debidamente citado y se ofrece con fines informativos.",
+                "Está prohibido reproducir artículos completos sin permiso por escrito. Citar fragmentos con atribución y enlace está expresamente permitido.",
+              ]} />
+            } />
+            <Route path="*" element={
+              <Static title="Página no encontrada" body={["La URL que buscas no existe. Vuelve al inicio o explora el archivo."]} />
+            } />
+          </Routes>
+          <Footer />
+        </BrowserRouter>
+      </AuthProvider>
     </div>
   );
 }

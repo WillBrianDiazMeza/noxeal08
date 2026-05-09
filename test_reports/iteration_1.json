@@ -1,0 +1,47 @@
+{
+  "summary": "First-iteration full-stack test of Noxeal. Backend: 18/18 pytest cases passed (health, articles list/featured/category-filter/trending/search/by-slug/404, categories, auth register/login/me/refresh/logout, newsletter subscribe/duplicate/invalid/admin-list with role gating). Frontend: home, articulo detail, explorar, tendencias, categorias, buscar, entrar (admin login), suscribirse, and 404 all render and integrate with the API correctly. Admin credentials seeded and verified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "CORS/.env", "issue": "backend FRONTEND_URL is set to 682955d6-... preview host but the actual frontend public URL is trending-news-3.preview.emergentagent.com. Currently same-origin so requests succeed (ingress sets ACAO:*), but if frontend ever calls backend cross-origin from the configured FRONTEND_URL it would be blocked. Update backend/.env FRONTEND_URL to match REACT_APP_BACKEND_URL or keep '*' (without credentials)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Header (logged in)", "issue": "After admin login the 'Salir' button is shown but the user email is NOT rendered in the header — spec requires 'header shows user email and Salir button'.", "selector": "header :text('admin@noxeal.com')", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Initial page load (unauthenticated)", "issue": "AuthContext fires GET /api/auth/me on every page load; when not logged in this returns 401 and produces ~10 noisy console errors. Should swallow 401 silently or use an /auth/session endpoint that returns 200 with user|null.", "affected_selectors": ["console"]},
+      {"flow": "Newsletter success", "issue": "After submitting /suscribirse, no visible success text matched 'bienvenido|suscrito|gracias|ok'. API returns 200 ok=true; verify the UI actually renders the success message (may be matched by different copy, but worth confirming visually).", "affected_selectors": ["form", "[role='status']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Show logged-in user's email (or name) in the Header next to the Salir button on desktop.",
+    "Suppress 401 console errors when AuthContext probes /api/auth/me on first load (catch and treat as not-logged-in).",
+    "Verify newsletter success message renders (or expose a data-testid='newsletter-success' for the success state).",
+    "Align backend FRONTEND_URL in /app/backend/.env with the actual public host used by the frontend, OR leave CORS as '*' but then drop allow_credentials (currently inconsistent)."
+  ],
+  "critical_code_review_comments": [
+    "server.py: cookies are set with secure=False; for production behind HTTPS preview, set secure=True so SameSite=Lax cookies are reliably accepted by browsers.",
+    "No brute-force / lockout protection on /api/auth/login (auth_testing.md mentions 5-fail lockout — not implemented).",
+    "No rate limiting on newsletter/subscribe — easy to spam.",
+    "FRONTEND_URL mismatch with REACT_APP_BACKEND_URL is a config inconsistency that will bite later if cross-origin is needed.",
+    "All endpoints sit in single server.py (~460 lines) — acceptable now but split into routers (auth, articles, newsletter) once it grows."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (new)",
+    "/app/test_reports/pytest/pytest_results.xml (generated)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "~90%"},
+  "test_credentials": "admin@noxeal.com / Noxeal2026! (already in /app/memory/test_credentials.md). Auto-seeded by backend startup.",
+  "seed_data_creation": "None added by tester. Backend auto-seeds 8 sample articles + admin user. Tests created throwaway TEST users via /api/auth/register and newsletter emails (uuid-suffixed); not cleaned up but harmless.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend 18/18 green. Reuse /app/backend/tests/backend_test.py as regression. The only real frontend gap is the missing user-email indicator in the header after login and the noisy 401 from /auth/me on cold load. Newsletter success copy was not auto-matched by regex — main agent should confirm the visible success text or add data-testid='newsletter-success'. CORS works because frontend & backend share the same preview origin.",
+  "rca of the issue": "N/A — no critical bug. The 401 console noise RCA: AuthContext mounts and calls /api/auth/me unconditionally; backend correctly returns 401 when no cookie. Mitigation: in api.js / AuthContext catch 401 from /auth/me and set user=null without rethrowing, OR add a public /auth/session endpoint."
+}
