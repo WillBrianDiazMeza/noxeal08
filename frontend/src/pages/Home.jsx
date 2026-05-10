@@ -6,6 +6,7 @@ import SEO from "@/components/SEO";
 import { ArticleCard, HeroEditorialCard } from "@/components/ArticleCard";
 import ViralCard from "@/components/ViralCard";
 import NewsletterSection from "@/components/NewsletterSection";
+import LiveCounter from "@/components/LiveCounter";
 
 export default function Home() {
   const [data, setData] = useState({ hero: null, side: [], viral: [], latest: [] });
@@ -21,9 +22,8 @@ export default function Home() {
     };
     fetchAll();
     setLoading(false);
-    // Real-time refresh every 45 seconds — picks up new articles published by admin/Make.com
-    const interval = setInterval(fetchAll, 45000);
-    // Also refresh when tab regains focus
+    // LIVE: refresh every 10s for stats; user feels numbers crawling up
+    const interval = setInterval(fetchAll, 10000);
     const onFocus = () => fetchAll();
     window.addEventListener("focus", onFocus);
     return () => { clearInterval(interval); window.removeEventListener("focus", onFocus); };
@@ -74,21 +74,36 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ========== STATS STRIP (social proof) ========== */}
+      {/* ========== STATS STRIP (social proof + live counter) ========== */}
       {stats && (
         <section className="py-10 bg-[#0d0d0f] text-white" data-testid="stats-strip">
-          <div className="max-w-7xl mx-auto px-5 lg:px-8 grid grid-cols-3 gap-6 text-center">
-            <div>
-              <div className="h-display text-3xl md:text-5xl text-white" data-testid="stat-reads">{stats.reads.toLocaleString("es-ES")}</div>
-              <div className="label-eyebrow-dark mt-2">Lecturas</div>
+          <div className="max-w-7xl mx-auto px-5 lg:px-8">
+            <div className="flex items-center justify-center gap-2 mb-5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+              </span>
+              <span className="text-[11px] uppercase tracking-[0.18em] text-white/55">En vivo</span>
             </div>
-            <div className="border-x border-white/10">
-              <div className="h-display text-3xl md:text-5xl text-white" data-testid="stat-subs">{stats.subscribers.toLocaleString("es-ES")}</div>
-              <div className="label-eyebrow-dark mt-2">Suscriptores</div>
-            </div>
-            <div>
-              <div className="h-display text-3xl md:text-5xl text-white" data-testid="stat-stories">{stats.stories}</div>
-              <div className="label-eyebrow-dark mt-2">Historias</div>
+            <div className="grid grid-cols-3 gap-6 text-center">
+              <div>
+                <div className="h-display text-3xl md:text-5xl text-white">
+                  <LiveCounter value={stats.reads} testid="stat-reads" />
+                </div>
+                <div className="label-eyebrow-dark mt-2">Lecturas</div>
+              </div>
+              <div className="border-x border-white/10">
+                <div className="h-display text-3xl md:text-5xl text-white">
+                  <LiveCounter value={stats.subscribers} testid="stat-subs" />
+                </div>
+                <div className="label-eyebrow-dark mt-2">Suscriptores</div>
+              </div>
+              <div>
+                <div className="h-display text-3xl md:text-5xl text-white">
+                  <LiveCounter value={stats.stories} testid="stat-stories" />
+                </div>
+                <div className="label-eyebrow-dark mt-2">Historias</div>
+              </div>
             </div>
           </div>
         </section>

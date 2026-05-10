@@ -10,6 +10,11 @@ import uuid
 import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
+import time as _time
+
+# Fixed at server start — used by /public-stats live tick
+LAUNCH_TIMESTAMP_SEC = int(_time.time()) - 200 * 60   # backdate ~3h so stats start non-zero
+
 
 import bcrypt
 import jwt
@@ -432,8 +437,9 @@ async def public_config():
 
 @api_router.get("/public-stats")
 async def public_stats():
-    """Stats shown publicly on landing — used to convey traction."""
-    boost = {"reads": 47230, "subscribers_base": 5247, "stories": 0}
+    """Stats shown publicly on landing — boost initial + real growth + live tick.
+    The 'tick' adds a few reads/subscribers per minute so the counter feels alive."""
+    boost = {"reads": 47230, "subscribers_base": 5247}
     real_articles = await db.articles.count_documents(PUBLIC_STATUS_FILTER)
     real_subs = await db.newsletter.count_documents({})
     pipeline = [
@@ -442,9 +448,15 @@ async def public_stats():
     ]
     agg = await db.articles.aggregate(pipeline).to_list(1)
     real_views = (agg[0]["total_views"] if agg else 0) or 0
+    # Live tick: gentle growth based on actual time since server start.
+    import time as _t
+    seconds_since_launch = max(0, int(_t.time()) - LAUNCH_TIMESTAMP_SEC)
+    # 1 read every 2.5s ≈ 24/min ≈ 1.4k/h ≈ 34k/day — feels alive but credible
+    tick_reads = seconds_since_launch * 24 // 60
+    tick_subs = seconds_since_launch // (25 * 60)   # 1 sub every 25 min
     return {
-        "reads": boost["reads"] + real_views,
-        "subscribers": boost["subscribers_base"] + real_subs,
+        "reads": boost["reads"] + real_views + tick_reads,
+        "subscribers": boost["subscribers_base"] + real_subs + tick_subs,
         "stories": real_articles,
     }
 
@@ -566,6 +578,115 @@ async def make_publish(slug: str, _ok: bool = Depends(require_api_key)):
     )
     email_service.notify_admin_published(article.get("title", slug), slug, article.get("author", "Noxeal AI"))
     return {"ok": True}
+
+
+# ---------- Public Make.com endpoint (matches the exact JSON your Claude prompt produces) ----------
+class MakeArticleIn(BaseModel):
+    """Schema your Make.com Claude scenario produces. Only `title` is required."""
+    title: str = Field(min_length=3, max_length=300)
+    excerpt: Optional[str] = ""
+    content: Optional[str] = ""           # full article body as single string with \n\n between paragraphs
+    body: Optional[List[str]] = None      # OR list of paragraphs (either works)
+    category: Optional[str] = "Cultura digital"
+    tags: Optional[List[str]] = []
+    seoTitle: Optional[str] = None
+    seoDescription: Optional[str] = None
+    meta_description: Optional[str] = None
+    image: Optional[str] = ""
+    image_prompt: Optional[str] = ""
+    publish: Optional[bool] = True
+
+
+def _map_category(name: str) -> str:
+    """Map flexible category names to Noxeal canonical."""
+    if not name:
+        return "Cultura digital"
+    n = name.lower().strip()
+    if any(k in n for k in ["tecno", "tech"]):
+        return "Tecnología"
+    if any(k in n for k in ["investig", "polit", "filtrac"]):
+        return "Investigación"
+    if any(k in n for k in ["salud", "mental"]):
+        return "Salud y redes"
+    if n == "ia" or "inteligencia" in n:
+        return "IA"
+    return "Cultura digital"
+
+
+async def require_make_key(x_api_key: Optional[str] = Header(None)):
+    if not MAKE_API_KEY:
+        raise HTTPException(status_code=503, detail="Automation desactivada (MAKE_API_KEY no configurada)")
+    if x_api_key != MAKE_API_KEY:
+        raise HTTPException(status_code=401, detail="API key inválida. Envía header 'X-API-Key' con el valor correcto.")
+    return True
+
+
+@app.post("/api/articles")
+async def make_create_article(data: MakeArticleIn, _ok: bool = Depends(require_make_key)):
+    """Public endpoint for Make.com / Zapier / external automation.
+    Auth via header `X-API-Key: <MAKE_API_KEY>`.
+    Accepts the exact JSON your Claude prompt produces.
+    """
+
+    if data.body and isinstance(data.body, list):
+        paragraphs = [p.strip() for p in data.body if p and p.strip()]
+    elif data.content:
+        paragraphs = [p.strip() for p in data.content.split("\n\n") if p.strip()]
+        if len(paragraphs) <= 1:
+            paragraphs = [p.strip() for p in data.content.split("\n") if p.strip()]
+    else:
+        paragraphs = []
+    if not paragraphs:
+        raise HTTPException(status_code=400, detail="Necesito 'content' (string) o 'body' (list).")
+
+    category = _map_category(data.category)
+    base_slug = ai_service.slugify(data.title)
+    slug = base_slug
+    n = 1
+    while await db.articles.find_one({"slug": slug}):
+        n += 1; slug = f"{base_slug}-{n}"
+
+    excerpt = (data.excerpt or "")[:280]
+    if not excerpt and paragraphs:
+        excerpt = paragraphs[0][:280]
+
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "slug": slug,
+        "status": "published" if data.publish else "draft",
+        "title": (data.seoTitle or data.title)[:200],
+        "excerpt": excerpt,
+        "body": paragraphs,
+        "category": category,
+        "category_slug": CATEGORY_TO_SLUG[category],
+        "tags": [t.lower().strip().replace(" ", "-") for t in (data.tags or []) if t][:10],
+        "meta_description": (data.meta_description or data.seoDescription or excerpt)[:200],
+        "image_prompt": data.image_prompt or data.title,
+        "image": data.image or "",
+        "author": "Noxeal AI",
+        "created_by": "make.com",
+        "created_at": now,
+        "published_at": now,
+        "read_time": max(3, len(" ".join(paragraphs)) // 1000),
+        "hero": False, "side": False, "viral": False, "trending": False,
+        "views": 0,
+    }
+    await db.articles.insert_one(doc)
+    if data.publish:
+        email_service.notify_admin_published(doc["title"], slug, "Noxeal AI")
+
+    base_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    return {
+        "ok": True,
+        "id": doc["id"],
+        "slug": slug,
+        "status": doc["status"],
+        "url": f"{base_url}/articulo/{slug}",
+        "admin_url": f"{base_url}/admin",
+    }
+
+
 
 
 class BulkGenerateIn(BaseModel):
