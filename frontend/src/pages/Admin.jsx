@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Sparkles, FileText, Eye, EyeOff, Trash2, RefreshCw, Image as ImageIcon, X, Lightbulb, Edit3, Star, Zap, Webhook, Copy } from "lucide-react";
 import { toast } from "sonner";
@@ -82,15 +82,15 @@ function ArticlesPanel({ onMutate }) {
   const [editing, setEditing] = useState(null);
   const [busySlug, setBusySlug] = useState("");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     const params = filter === "all" ? {} : { status: filter };
     try {
       const { data } = await api.get("/admin/articles", { params });
       setArticles(data || []);
     } finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, [filter]);
+  }, [filter]);
+  useEffect(() => { load(); }, [load]);
 
   const setStatus = async (slug, action) => {
     setBusySlug(slug);
@@ -385,13 +385,13 @@ function CommentsPanel({ onMutate }) {
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     const { data } = await api.get("/admin/comments");
     setComments(data || []);
     setLoading(false);
-  };
-  useEffect(() => { load(); }, []);
+  }, []);
+  useEffect(() => { load(); }, [load]);
 
   const remove = async (id) => {
     if (!window.confirm("¿Eliminar comentario?")) return;
@@ -456,13 +456,13 @@ function UsersPanel() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     const { data } = await api.get("/admin/users");
     setUsers(data || []);
     setLoading(false);
-  };
-  useEffect(() => { load(); }, []);
+  }, []);
+  useEffect(() => { load(); }, [load]);
 
   const setRole = async (id, role) => {
     try {

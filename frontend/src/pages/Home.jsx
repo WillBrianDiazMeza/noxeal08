@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight } from "lucide-react";
 import { api } from "@/lib/api";
@@ -13,20 +13,70 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
   const [mostRead, setMostRead] = useState([]);
+  const serverStatsRef = useRef(null);
 
   useEffect(() => {
     const fetchAll = () => {
       api.get("/articles/featured").then(({ data }) => setData(data)).catch(() => {});
-      api.get("/public-stats").then(({ data }) => setStats(data)).catch(() => {});
+      api.get("/public-stats").then(({ data }) => {
+        serverStatsRef.current = data;
+        // Resync: take the higher value between local drift and authoritative server count.
+        setStats((prev) => {
+          if (!prev) return data;
+          return {
+            reads: Math.max(prev.reads || 0, data.reads || 0),
+            subscribers: Math.max(prev.subscribers || 0, data.subscribers || 0),
+            stories: data.stories || 0,
+          };
+        });
+      }).catch(() => {});
       api.get("/articles/most-read?limit=4").then(({ data }) => setMostRead(data || [])).catch(() => {});
     };
     fetchAll();
     setLoading(false);
-    // LIVE: refresh every 10s for stats; user feels numbers crawling up
-    const interval = setInterval(fetchAll, 10000);
+    // Refresh server-authoritative stats every 25s
+    const pollInterval = setInterval(fetchAll, 25000);
     const onFocus = () => fetchAll();
     window.addEventListener("focus", onFocus);
-    return () => { clearInterval(interval); window.removeEventListener("focus", onFocus); };
+
+    // Random local "live drift": stats grow at an organic, irregular rhythm.
+    // Reads: +1..+4 every 1.2-3.5s. Subs: +1 ~every 30-75s (rare, lifelike).
+    let cancelled = false;
+    const tickReads = () => {
+      if (cancelled) return;
+      setStats((prev) => {
+        if (!prev) return prev;
+        // Weighted: mostly +1 / +2, sometimes +3 / +4 — natural newsroom traffic
+        const r = Math.random();
+        const inc = r < 0.40 ? 1 : r < 0.72 ? 2 : r < 0.90 ? 3 : 4;
+        return { ...prev, reads: (prev.reads || 0) + inc };
+      });
+      const next = 1200 + Math.floor(Math.random() * 2300); // 1.2–3.5s
+      setTimeout(tickReads, next);
+    };
+    const tickSubs = () => {
+      if (cancelled) return;
+      setStats((prev) => {
+        if (!prev) return prev;
+        // 50% chance to actually add a subscriber on each tick, otherwise idle.
+        if (Math.random() < 0.50) {
+          return { ...prev, subscribers: (prev.subscribers || 0) + 1 };
+        }
+        return prev;
+      });
+      const next = 30000 + Math.floor(Math.random() * 45000); // 30–75s
+      setTimeout(tickSubs, next);
+    };
+    const r1 = setTimeout(tickReads, 1500);
+    const r2 = setTimeout(tickSubs, 9000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollInterval);
+      clearTimeout(r1);
+      clearTimeout(r2);
+      window.removeEventListener("focus", onFocus);
+    };
   }, []);
 
   return (
@@ -149,7 +199,7 @@ export default function Home() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {(data.viral || []).map((a) => (
-              <ViralCard key={a.slug} topic={a.title} image={a.image} slug={a.slug} />
+              <ViralCard key={a.slug} topic={a.title} slug={a.slug} />
             ))}
           </div>
         </div>
@@ -211,10 +261,9 @@ export default function Home() {
 function SkeletonHero() {
   return (
     <div className="animate-pulse">
-      <div className="card-image-wrap aspect-[16/11] mb-7 bg-[#eaeaee]" />
       <div className="h-3 w-32 bg-[#eaeaee] mb-4 rounded" />
-      <div className="h-10 w-3/4 bg-[#eaeaee] mb-3 rounded" />
-      <div className="h-10 w-1/2 bg-[#eaeaee] mb-6 rounded" />
+      <div className="h-12 w-3/4 bg-[#eaeaee] mb-3 rounded" />
+      <div className="h-12 w-1/2 bg-[#eaeaee] mb-6 rounded" />
       <div className="h-4 w-full bg-[#eaeaee] mb-2 rounded" />
       <div className="h-4 w-5/6 bg-[#eaeaee] rounded" />
     </div>

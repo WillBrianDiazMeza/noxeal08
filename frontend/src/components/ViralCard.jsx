@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 
-export default function ViralCard({ topic, image, slug }) {
+export default function ViralCard({ topic, slug }) {
   return (
     <Link
       to={slug ? `/articulo/${slug}` : "/tendencias"}
@@ -15,12 +15,7 @@ export default function ViralCard({ topic, image, slug }) {
     >
       <div>
         <div className="label-eyebrow-dark mb-4">Tema viral</div>
-        <h3 className="h-display text-2xl md:text-[26px] text-white leading-tight mb-3">{topic}</h3>
-        {image && (
-          <div className="rounded-xl overflow-hidden mb-2 mt-3 opacity-80 aspect-[4/2]">
-            <img src={image} alt={topic} className="w-full h-full object-cover" loading="lazy" />
-          </div>
-        )}
+        <h3 className="h-display text-2xl md:text-[26px] text-white leading-tight">{topic}</h3>
       </div>
       <div className="flex items-center justify-between mt-6">
         <span className="text-xs text-white/55">Explorar</span>

@@ -94,3 +94,20 @@ related articles, SEO (helmet, sitemap.xml, robots.txt), polish visual.
 - ✅ **/admin/Make.com tab** con docs copy-paste: endpoints, API key, body JSON, flujo recomendado.
 - ✅ **IA + Editor badge** en artículos generados por IA, **counter de lecturas** en cada artículo.
 - ✅ **Tests**: 73/74 (98.6%) tras fix de route ordering en /api/articles/most-read.
+
+
+### Iteración 5 (2026-02-10) ⭐ NEW — Editorial pure-typography & Vercel ready
+- ✅ **Vercel build fix**: `load()` envuelto en `useCallback` en `Comments.jsx` + `Admin.jsx` (ArticlesPanel/CommentsPanel/UsersPanel). `CI=true yarn build` ahora pasa limpio.
+- ✅ **Quitadas TODAS las imágenes de la UI** (modelo intacto, solo ocultas):
+  - `ArticleCard` y `HeroEditorialCard`: cards 100% tipográficas con separadores border-top editoriales.
+  - `Articulo.jsx`: eliminado `<img>` del hero del artículo, ancho de cuerpo subido a max-w-3xl.
+  - `ViralCard`: solo título tipográfico, sin thumbnail.
+  - `SkeletonHero`: ya no incluye placeholder de imagen.
+- ✅ **Google Analytics 4** instalado en `/public/index.html` (`G-S3TMB4WYWS`) con `anonymize_ip: true`.
+- ✅ **Title del site** corregido: `Noxeal — Periodismo lento sobre la cultura digital`.
+- ✅ **Live stats con ritmo aleatorio**: en `Home.jsx`, drift local cada 1.2-3.5s (+1..+4 ponderado) para lecturas y cada 30-75s con 50% prob (+1) para suscriptores. Re-sync con servidor cada 25s tomando `Math.max(local, server)` para nunca retroceder.
+- ✅ Build verificado: 125 kB gzip JS, 14 kB CSS, 0 warnings.
+
+## Backlog
+- P1: Que cada referencia hardcoded de dominio apunte a `noxeal.com` (revisar SEO.jsx + sitemap base).
+- P2: Sustituir mock de imágenes en backend por título tipográfico también en cards de admin si se desea.

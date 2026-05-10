@@ -72,13 +72,7 @@ export default function Articulo() {
           </div>
         </div>
 
-        <div className="max-w-5xl mx-auto px-5 lg:px-8 mb-16">
-          <div className="card-image-wrap aspect-[16/9]">
-            <img src={article.image && (article.image.startsWith('http') ? article.image : `${process.env.REACT_APP_BACKEND_URL || ''}${article.image}`)} alt={article.title} />
-          </div>
-        </div>
-
-        <div className="max-w-2xl mx-auto px-5 lg:px-0 prose-noxeal" data-testid="article-body">
+        <div className="max-w-3xl mx-auto px-5 lg:px-0 prose-noxeal" data-testid="article-body">
           <p className="text-xl text-[#1a1a1a] leading-relaxed mb-8 font-medium">
             {article.excerpt}
           </p>
@@ -87,7 +81,7 @@ export default function Articulo() {
 
         {/* Tags */}
         {article.tags && article.tags.length > 0 && (
-          <div className="max-w-2xl mx-auto px-5 lg:px-0 mt-10" data-testid="article-tags">
+          <div className="max-w-3xl mx-auto px-5 lg:px-0 mt-10" data-testid="article-tags">
             <div className="flex items-center gap-2 flex-wrap">
               <Tag size={14} className="text-[#86868b]" />
               {article.tags.map((t) => (
@@ -104,7 +98,7 @@ export default function Articulo() {
           </div>
         )}
 
-        <div className="max-w-2xl mx-auto px-5 lg:px-0">
+        <div className="max-w-3xl mx-auto px-5 lg:px-0">
           <SocialShare url={`/articulo/${article.slug}`} title={article.title} excerpt={article.excerpt} />
         </div>
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Trash2, MessageSquare } from "lucide-react";
 import { api, formatApiError } from "@/lib/api";
@@ -24,15 +24,15 @@ export default function Comments({ slug }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const { data } = await api.get(`/articles/${slug}/comments`);
       setComments(data || []);
     } finally { setLoading(false); }
-  };
+  }, [slug]);
 
-  useEffect(() => { load(); }, [slug]);
+  useEffect(() => { load(); }, [load]);
 
   const submit = async (e) => {
     e.preventDefault();
