@@ -723,6 +723,7 @@ async def require_make_key(x_api_key: Optional[str] = Header(None)):
 
 
 @app.post("/api/articles")
+@app.post("/articles")
 async def make_create_article(data: MakeArticleIn, _ok: bool = Depends(require_make_key)):
     """Public endpoint for Make.com / Zapier / external automation.
     If MAKE_API_KEY env is set, requires header X-API-Key. Otherwise allowed (dev).
@@ -1428,6 +1429,24 @@ async def root():
 
 
 app.include_router(api_router)
+# Also mount the SAME routes WITHOUT the /api prefix so the API works regardless
+# of whether the host platform (Vercel experimentalServices, Cloudflare worker,
+# nginx ingress) strips the /api prefix before forwarding requests.
+# Local/Kubernetes ingress sends /api/foo → matches the api_router.
+# Vercel (some configs) may strip /api and send /foo → matches the bare router.
+_bare_router = APIRouter()
+for r in api_router.routes:
+    # Strip the "/api" prefix from each route's path and re-register
+    if hasattr(r, "path") and r.path.startswith("/api"):
+        bare_path = r.path[len("/api"):] or "/"
+        _bare_router.add_api_route(
+            bare_path,
+            r.endpoint,
+            methods=getattr(r, "methods", None),
+            name=f"bare_{r.name}" if r.name else None,
+            response_model=getattr(r, "response_model", None),
+        )
+app.include_router(_bare_router)
 
 # Serve AI-generated images at /api/static/images/* (only if directory writable; Vercel skips this)
 try:
@@ -1445,6 +1464,7 @@ except OSError:
 from fastapi.responses import Response as PlainResponse
 
 @app.get("/api/sitemap.xml")
+@app.get("/sitemap.xml")
 async def sitemap():
     base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
     static_paths = ["/", "/explorar", "/tendencias", "/categorias", "/buscar", "/suscribirse", "/entrar"]
@@ -1466,6 +1486,7 @@ async def sitemap():
 
 
 @app.get("/api/robots.txt")
+@app.get("/robots.txt")
 async def robots():
     base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
     txt = f"User-agent: *\nAllow: /\nSitemap: {base}/api/sitemap.xml\n"
