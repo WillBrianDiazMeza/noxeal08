@@ -30,12 +30,23 @@ import email_service
 MAKE_API_KEY = os.environ.get("MAKE_API_KEY", "")
 
 
-# ---------- Setup ----------
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# ---------- Setup (Vercel-safe: never crash on missing env at import time) ----------
+mongo_url = os.environ.get("MONGO_URL", "")
+db_name = os.environ.get("DB_NAME", "noxeal")
+JWT_SECRET = os.environ.get("JWT_SECRET", "")
 
-JWT_SECRET = os.environ['JWT_SECRET']
+if not mongo_url:
+    logging.warning("MONGO_URL not configured — DB-backed endpoints will fail at runtime.")
+if not JWT_SECRET:
+    # Generate a random ephemeral secret so the app still imports.
+    # WARNING: tokens won't survive process restart. Set JWT_SECRET in production.
+    import secrets as _secrets
+    JWT_SECRET = _secrets.token_hex(32)
+    logging.warning("JWT_SECRET not configured — using ephemeral random secret (tokens won't persist).")
+
+client = AsyncIOMotorClient(mongo_url) if mongo_url else None
+db = client[db_name] if client is not None else None
+
 JWT_ALGORITHM = "HS256"
 
 app = FastAPI(title="Noxeal API")
@@ -460,15 +471,24 @@ async def increment_view(slug: str):
 # ---------- Health & Stats (public-ish, used by Make.com / monitoring) ----------
 @api_router.get("/health")
 async def health():
-    try:
-        await db.command("ping")
-        db_ok = True
-    except Exception:
-        db_ok = False
+    """Always returns 200 with diagnostic info, even when DB is unreachable."""
+    db_ok = False
+    db_error = None
+    if db is not None:
+        try:
+            await db.command("ping")
+            db_ok = True
+        except Exception as e:
+            db_error = str(e)[:200]
+    else:
+        db_error = "MONGO_URL not configured"
     return {
-        "ok": db_ok,
+        "ok": True,
+        "db": db_ok,
+        "db_error": db_error,
         "service": "noxeal-api",
         "version": "1.0",
+        "ai_available": ai_service.is_available() if hasattr(ai_service, "is_available") else False,
         "time": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -1347,37 +1367,43 @@ async def seed_articles():
 
 @app.on_event("startup")
 async def on_startup():
-    await db.users.create_index("email", unique=True)
-    await db.users.create_index("id", unique=True)
-    await db.articles.create_index("slug", unique=True)
-    await db.articles.create_index("tags")
-    await db.articles.create_index("category_slug")
-    await db.articles.create_index("status")
-    await db.articles.create_index([("viral_score", -1)])
-    await db.articles.create_index([("controversy_score", -1)])
-    await db.articles.create_index([("comments_count", -1)])
-    await db.newsletter.create_index("email", unique=True)
-    await db.comments.create_index("article_slug")
-    await db.comments.create_index("id", unique=True)
-    await seed_admin()
-    await seed_articles()
-    # Backfill engagement counters on legacy docs
-    await db.articles.update_many(
-        {"likes": {"$exists": False}},
-        {"$set": {"likes": 0, "comments_count": 0, "viral_score": 0, "controversy_score": 0}},
-    )
-    # Recompute comments_count from real comments collection (safe re-run)
-    pipeline = [
-        {"$match": {"deleted": {"$ne": True}}},
-        {"$group": {"_id": "$article_slug", "n": {"$sum": 1}}},
-    ]
-    async for r in db.comments.aggregate(pipeline):
-        await db.articles.update_one({"slug": r["_id"]}, {"$set": {"comments_count": r["n"]}})
+    """Best-effort init. Vercel serverless may not run this on every invocation; that's OK."""
+    if db is None:
+        logging.warning("Startup skipped: no DB configured.")
+        return
+    try:
+        await db.users.create_index("email", unique=True)
+        await db.users.create_index("id", unique=True)
+        await db.articles.create_index("slug", unique=True)
+        await db.articles.create_index("tags")
+        await db.articles.create_index("category_slug")
+        await db.articles.create_index("status")
+        await db.articles.create_index([("viral_score", -1)])
+        await db.articles.create_index([("controversy_score", -1)])
+        await db.articles.create_index([("comments_count", -1)])
+        await db.newsletter.create_index("email", unique=True)
+        await db.comments.create_index("article_slug")
+        await db.comments.create_index("id", unique=True)
+        await seed_admin()
+        await seed_articles()
+        await db.articles.update_many(
+            {"likes": {"$exists": False}},
+            {"$set": {"likes": 0, "comments_count": 0, "viral_score": 0, "controversy_score": 0}},
+        )
+        pipeline = [
+            {"$match": {"deleted": {"$ne": True}}},
+            {"$group": {"_id": "$article_slug", "n": {"$sum": 1}}},
+        ]
+        async for r in db.comments.aggregate(pipeline):
+            await db.articles.update_one({"slug": r["_id"]}, {"$set": {"comments_count": r["n"]}})
+    except Exception as e:
+        logging.warning(f"Startup task failed (non-fatal): {e}")
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    if client is not None:
+        client.close()
 
 
 # ---------- Mount ----------
@@ -1388,11 +1414,16 @@ async def root():
 
 app.include_router(api_router)
 
-# Serve AI-generated images at /api/static/images/*
-STATIC_DIR = ROOT_DIR / "static"
-STATIC_DIR.mkdir(exist_ok=True)
-(STATIC_DIR / "images").mkdir(exist_ok=True)
-app.mount("/api/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+# Serve AI-generated images at /api/static/images/* (only if directory writable; Vercel skips this)
+try:
+    STATIC_DIR = ROOT_DIR / "static"
+    STATIC_DIR.mkdir(exist_ok=True)
+    (STATIC_DIR / "images").mkdir(exist_ok=True)
+    app.mount("/api/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+except OSError:
+    # Read-only filesystem (Vercel serverless) — skip mount.
+    logger_init = logging.getLogger(__name__)
+    logger_init.info("StaticFiles mount skipped (read-only filesystem).")
 
 
 # ---------- Sitemap & robots (SEO) — under /api so kubernetes ingress forwards them ----------

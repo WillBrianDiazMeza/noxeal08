@@ -220,8 +220,47 @@ yarn build
 ```
 `vercel.json` ya configurado en `frontend/vercel.json`. Las llamadas `/api/*` se redirigen al backend.
 
-### Backend → Railway / Render / Fly.io (recomendado)
-FastAPI necesita un host con soporte Python persistente. Vercel no es ideal para FastAPI; usa Railway o Render.
+### ⚡ Vercel Deploy — Checklist completo
+
+Si usas Vercel `experimentalServices` (frontend + backend en el mismo repo, como en tu screenshot), configura **estas variables de entorno en Vercel → Settings → Environment Variables** (para el servicio backend):
+
+| Variable | Valor | Obligatoria |
+|----------|-------|-------------|
+| `MONGO_URL` | `mongodb+srv://user:pass@cluster.mongodb.net/noxeal?retryWrites=true&w=majority` | ✅ |
+| `DB_NAME` | `noxeal` | ✅ |
+| `JWT_SECRET` | (64 chars random — genera con `openssl rand -hex 32`) | ✅ |
+| `MAKE_API_KEY` | `noxeal-make-7f3a9b2c8d4e5f6a1b9c3d8e7f2a5b6c` | ⭐ recomendado |
+| `FRONTEND_URL` | `https://noxeal.com` | ⭐ para sitemap correcto |
+| `ADMIN_EMAIL` | `noxael18@gmail.com` | ⭐ admin seed |
+| `ADMIN_PASSWORD` | (tu password) | ⭐ admin seed |
+| `RESEND_API_KEY` | (opcional, para emails) | ❌ |
+| `SENDER_EMAIL` | `onboarding@resend.dev` o tu dominio verificado | ❌ |
+| `ADMIN_NOTIFY_EMAIL` | tu correo personal | ❌ |
+| `EMERGENT_LLM_KEY` | (no aplica en Vercel — paquete privado) | ❌ |
+
+Y para el servicio frontend:
+
+| Variable | Valor | Obligatoria |
+|----------|-------|-------------|
+| `REACT_APP_BACKEND_URL` | tu URL Vercel o `https://noxeal.com` | ✅ |
+| `REACT_APP_GA_ID` | `G-S3TMB4WYWS` | ❌ |
+| `REACT_APP_ADSENSE_CLIENT_ID` | (cuando te aprueben AdSense) | ❌ |
+
+> ⚠️ **Importante**: las features de generación IA (admin → "Generar artículo con Claude") **NO funcionan en Vercel** porque `emergentintegrations` es un paquete privado solo disponible en Emergent. Esto es intencional: tu único origen de artículos son **Make.com → POST /api/articles**, que sí funciona en Vercel.
+
+### Verificar deploy en Vercel
+
+Después del primer deploy, prueba estas URLs en orden:
+
+1. `https://noxeal.com/api/health` → debe devolver `{ok: true, db: true, ...}`. Si `db: false`, falta o está mal el `MONGO_URL`.
+2. `https://noxeal.com/api/sitemap.xml` → debe devolver XML válido con URLs.
+3. `https://noxeal.com/api/articles` → debe devolver listado JSON (vacío si no hay artículos aún).
+4. `curl -X POST https://noxeal.com/api/articles -H "Content-Type: application/json" -H "X-API-Key: <tu-key>" -d '{"title":"Test","content":"a\n\nb"}'` → debe devolver `{success: true}`.
+5. Si todos pasan: ve a Make.com → Run once → primer artículo real publicado.
+6. Envía `https://noxeal.com/api/sitemap.xml` a Google Search Console.
+
+### Backend alternativo → Railway / Render (recomendado para AI)
+Si quieres mantener las features de generación IA del admin, despliega el backend en Railway o Render (no Vercel) y apunta `REACT_APP_BACKEND_URL` ahí.
 
 Comando de arranque:
 ```

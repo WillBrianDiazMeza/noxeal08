@@ -139,3 +139,28 @@ related articles, SEO (helmet, sitemap.xml, robots.txt), polish visual.
 - ✅ `README.md` completo con instrucciones Make.com paso a paso (endpoint, headers, body JSON, prompt Claude, flujo recomendado, variables env, deploy).
 
 **Tests**: backend 17/17 (100%) + frontend completo (todas las testids, GA4 conditional, AdSense gated, 0 `<img>` en `<main>`, like/save persistente, comentarios anidados).
+
+### Iteración 7 (2026-02-10) ⭐ VERCEL-SAFE
+- ✅ `server.py` ahora importa SIN ninguna env var configurada (defensivo): `MONGO_URL`, `DB_NAME`, `JWT_SECRET` con defaults seguros; `client/db` son `None` si falta MONGO_URL; JWT_SECRET ephemeral si falta.
+- ✅ `ai_service.py`: `from emergentintegrations...` envuelto en `try/except`. `is_available()` para checks. Si el paquete privado falta (caso Vercel), AI generation está deshabilitada pero todo lo demás funciona.
+- ✅ `email_service.py`: `import resend` en try/except. Si falta, emails se loguean como skipped silenciosamente.
+- ✅ `StaticFiles` mount condicional (filesystem read-only en Vercel).
+- ✅ `@app.on_event("startup")` defensivo: hace try/except + no crashea si DB no responde.
+- ✅ `/api/health` devuelve 200 SIEMPRE: incluye `{ok, db, db_error, service, version, ai_available, time}`.
+- ✅ `backend/index.py` + `backend/main.py` + `backend/runtime.txt` (python-3.11) creados para auto-detect de Vercel.
+- ✅ README con CHECKLIST exhaustivo de env vars Vercel (frontend + backend) + URLs para verificar deploy.
+
+**Verificación local pasada**:
+1. `env -i python -c "import server"` → ✅ OK (55 routes, no crash)
+2. `/api/health` → `{ok:true, db:true, ai_available:true}`
+3. `/api/sitemap.xml` → XML válido
+4. `POST /api/articles` con key → success; sin key → 401
+5. Frontend: home con todas las secciones (hero, stats, debate, latest), 0 JS errors
+
+**Lo que el usuario debe hacer ahora**:
+1. Push a GitHub (Save to Github desde Emergent).
+2. En Vercel → Settings → Env Vars añadir las del CHECKLIST del README.
+3. Redeploy → probar `https://noxeal.com/api/health`.
+4. Si funciona → `Run once` en Make.com → primer artículo publicado.
+5. Enviar `noxeal.com/api/sitemap.xml` a Google Search Console.
+

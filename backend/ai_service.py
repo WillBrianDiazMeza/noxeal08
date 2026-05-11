@@ -1,6 +1,10 @@
 """AI helpers — Claude Sonnet 4.5 article generation + Nano Banana image generation.
 
 Uses the EMERGENT_LLM_KEY universal key + emergentintegrations library.
+
+Vercel-safe: the `emergentintegrations` package is private and only available in the
+Emergent preview environment. We import it lazily and degrade gracefully if missing
+(AI admin features become unavailable, but the rest of the API keeps working).
 """
 import os
 import json
@@ -11,12 +15,29 @@ import unicodedata
 from pathlib import Path
 from typing import Optional
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+# Lazy import — never crash module load. ai_service is imported by server.py.
+try:
+    from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
+    _AI_AVAILABLE = True
+except Exception:
+    LlmChat = None  # type: ignore
+    UserMessage = None  # type: ignore
+    _AI_AVAILABLE = False
 
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 
 STATIC_IMAGES_DIR = Path(__file__).parent / "static" / "images"
-STATIC_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    STATIC_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    # Vercel serverless filesystem is read-only outside /tmp — that's fine,
+    # images are unused on the production frontend anyway.
+    pass
+
+
+def is_available() -> bool:
+    """Whether AI generation features can be used (requires both package + key)."""
+    return _AI_AVAILABLE and bool(EMERGENT_KEY)
 
 
 def slugify(text: str) -> str:
@@ -30,7 +51,6 @@ def slugify(text: str) -> str:
 def _strip_json_fences(s: str) -> str:
     s = s.strip()
     if s.startswith("```"):
-        # remove leading ```json or ``` and trailing ```
         s = re.sub(r"^```(?:json)?\s*", "", s)
         s = re.sub(r"\s*```$", "", s)
     return s.strip()
@@ -101,8 +121,8 @@ DEVUELVE EXCLUSIVAMENTE JSON VÁLIDO:
 
 async def generate_article_draft(topic: str) -> dict:
     """Use Claude Sonnet 4.5 to generate a full article draft from a topic."""
-    if not EMERGENT_KEY:
-        raise RuntimeError("EMERGENT_LLM_KEY not configured")
+    if not is_available():
+        raise RuntimeError("AI generation no disponible: instala emergentintegrations y configura EMERGENT_LLM_KEY.")
     chat = LlmChat(
         api_key=EMERGENT_KEY,
         session_id=f"noxeal-article-{uuid.uuid4().hex[:8]}",
@@ -114,15 +134,12 @@ async def generate_article_draft(topic: str) -> dict:
     try:
         data = json.loads(payload)
     except json.JSONDecodeError:
-        # Attempt to find the JSON block heuristically
         match = re.search(r"\{.*\}", payload, re.DOTALL)
         if not match:
             raise ValueError(f"AI response was not valid JSON: {payload[:200]}")
         data = json.loads(match.group(0))
-    # Sanity defaults
     data.setdefault("tags", [])
     data.setdefault("body", [])
-    # Defensive: if AI returned body as a single string, wrap it
     if isinstance(data.get("body"), str):
         data["body"] = [p.strip() for p in re.split(r"\n\s*\n", data["body"]) if p.strip()]
     if not isinstance(data.get("tags"), list):
@@ -134,8 +151,8 @@ async def generate_article_draft(topic: str) -> dict:
 
 
 async def suggest_topics(focus: Optional[str] = None) -> list:
-    if not EMERGENT_KEY:
-        raise RuntimeError("EMERGENT_LLM_KEY not configured")
+    if not is_available():
+        raise RuntimeError("AI generation no disponible: instala emergentintegrations y configura EMERGENT_LLM_KEY.")
     chat = LlmChat(
         api_key=EMERGENT_KEY,
         session_id=f"noxeal-topics-{uuid.uuid4().hex[:8]}",
@@ -159,8 +176,8 @@ async def suggest_topics(focus: Optional[str] = None) -> list:
 async def generate_image(prompt: str) -> str:
     """Generate an editorial featured image with Nano Banana, save to /static/images,
     return public path /api/static/images/{filename}."""
-    if not EMERGENT_KEY:
-        raise RuntimeError("EMERGENT_LLM_KEY not configured")
+    if not is_available():
+        raise RuntimeError("AI image generation no disponible.")
     chat = LlmChat(
         api_key=EMERGENT_KEY,
         session_id=f"noxeal-img-{uuid.uuid4().hex[:8]}",

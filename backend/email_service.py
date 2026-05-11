@@ -1,9 +1,17 @@
-"""Resend email helpers — fire-and-forget admin notifications."""
+"""Resend email helpers — fire-and-forget admin notifications.
+
+Vercel-safe: `resend` import is lazy; if missing, emails are skipped silently.
+"""
 import os
 import asyncio
 import logging
 
-import resend
+try:
+    import resend  # type: ignore
+    _RESEND_AVAILABLE = True
+except Exception:
+    resend = None  # type: ignore
+    _RESEND_AVAILABLE = False
 
 logger = logging.getLogger("noxeal.email")
 
@@ -11,7 +19,7 @@ RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 ADMIN_NOTIFY_EMAIL = os.environ.get("ADMIN_NOTIFY_EMAIL", "")
 
-if RESEND_API_KEY:
+if RESEND_API_KEY and _RESEND_AVAILABLE:
     resend.api_key = RESEND_API_KEY
 
 
@@ -32,8 +40,8 @@ def _wrap(html_body: str, title: str = "Noxeal") -> str:
 
 
 async def _send(to: str, subject: str, html: str):
-    if not RESEND_API_KEY or not to:
-        logger.info(f"[email skipped — key/to missing] to={to} subj={subject!r}")
+    if not _RESEND_AVAILABLE or not RESEND_API_KEY or not to:
+        logger.info(f"[email skipped — resend/key/to missing] to={to} subj={subject!r}")
         return
     try:
         params = {"from": SENDER_EMAIL, "to": [to], "subject": subject, "html": html}
