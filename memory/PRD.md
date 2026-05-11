@@ -111,3 +111,31 @@ related articles, SEO (helmet, sitemap.xml, robots.txt), polish visual.
 ## Backlog
 - P1: Que cada referencia hardcoded de dominio apunte a `noxeal.com` (revisar SEO.jsx + sitemap base).
 - P2: Sustituir mock de imágenes en backend por título tipográfico también en cards de admin si se desea.
+
+
+### Iteración 6 (2026-02-10) ⭐ PRODUCCIÓN REAL
+**Backend (`server.py`)**
+- ✅ `POST /api/articles` (Make.com) mejorado: acepta `sourceUrl`, `seoTitle`, `seoDescription`, `authorName`, `status` explícito. Devuelve `{success:true, ok:true, slug, url, status}`. Inicializa `likes/comments_count/viral_score/controversy_score=0`. Hard-limit 50k chars + sanitización HTML (`<script>/<iframe>/on*=`). Auth con `hmac.compare_digest` (timing-safe).
+- ✅ Likes anónimos: `POST /articles/{slug}/like` (+1 likes & viral_score) + `/unlike`.
+- ✅ Comentarios: `parent_id` para hilos. Auto-incremento `comments_count` + `controversy_score` al crear, decremento al borrar.
+- ✅ `POST /comments/{id}/like` + `POST /comments/{id}/report` con auto-hide a 5 reportes.
+- ✅ `GET /admin/comments/reported`.
+- ✅ Replies huérfanos se ocultan al listar comentarios.
+- ✅ Feeds nuevos: `/api/feed/trending`, `/api/feed/controversial`, `/api/feed/most-commented` (no shadowed por `/articles/{slug}`).
+- ✅ Migración startup: backfill de counters en docs legacy + recompute `comments_count` desde colección real.
+
+**Frontend**
+- ✅ `ArticleEngagement` con Like + Save + Views + Comments pills (dedupe localStorage).
+- ✅ JSON-LD `NewsArticle` (Schema.org) en cada artículo + `WebSite` en home, en `SEO.jsx`.
+- ✅ Canonical apunta a `https://noxeal.com` (no preview).
+- ✅ Home con 2 secciones nuevas: Polémicos + Más comentados (data-testid `debate-section`).
+- ✅ Comments con replies anidados, like y report (`comment-like-{id}`, `comment-reply-{id}`, `comment-report-{id}`).
+- ✅ Páginas legales completas: `/about`, `/privacy`, `/cookies`, `/terms`, `/disclaimer`, `/contact` (+ alias en español).
+- ✅ `AdSenseLoader.jsx` y `GAnalytics.jsx` cargan condicionalmente vía `REACT_APP_ADSENSE_CLIENT_ID` / `REACT_APP_GA_ID`.
+- ✅ Footer con todos los enlaces legales.
+- ✅ Source URL del artículo (cuando Make.com lo envía) se muestra al final con `rel="nofollow"`.
+
+**Documentación**
+- ✅ `README.md` completo con instrucciones Make.com paso a paso (endpoint, headers, body JSON, prompt Claude, flujo recomendado, variables env, deploy).
+
+**Tests**: backend 17/17 (100%) + frontend completo (todas las testids, GA4 conditional, AdSense gated, 0 `<img>` en `<main>`, like/save persistente, comentarios anidados).

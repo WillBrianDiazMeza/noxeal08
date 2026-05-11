@@ -354,7 +354,9 @@ async def list_comments(slug: str):
     comments = await db.comments.find(
         {"article_slug": slug, "deleted": {"$ne": True}}, {"_id": 0}
     ).sort("created_at", 1).to_list(500)
-    return comments
+    # Hide orphaned replies (parent deleted). Keep only those whose parent is still visible.
+    visible_ids = {c["id"] for c in comments}
+    return [c for c in comments if not c.get("parent_id") or c["parent_id"] in visible_ids]
 
 
 @api_router.post("/articles/{slug}/comments")
@@ -677,9 +679,10 @@ def _sanitize(text: str) -> str:
 
 
 async def require_make_key(x_api_key: Optional[str] = Header(None)):
-    """If MAKE_API_KEY is set in env, demand it. Otherwise (dev) allow."""
+    """If MAKE_API_KEY is set in env, demand it (timing-safe). Otherwise (dev) allow."""
     if MAKE_API_KEY:
-        if x_api_key != MAKE_API_KEY:
+        import hmac
+        if not x_api_key or not hmac.compare_digest(x_api_key, MAKE_API_KEY):
             raise HTTPException(status_code=401, detail="API key inválida. Envía header 'X-API-Key' con el valor correcto.")
     return True
 
