@@ -24,6 +24,7 @@ if RESEND_API_KEY and _RESEND_AVAILABLE:
 
 
 def _wrap(html_body: str, title: str = "Noxeal") -> str:
+    base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
     return f"""<!doctype html>
 <html><body style="margin:0;padding:32px;background:#fafafa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
   <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin:0 auto;background:#ffffff;border-radius:18px;border:1px solid #eaeaea;overflow:hidden;">
@@ -33,7 +34,7 @@ def _wrap(html_body: str, title: str = "Noxeal") -> str:
     <tr><td style="padding:32px;color:#1a1a1a;line-height:1.55;font-size:15px;">{html_body}</td></tr>
     <tr><td style="padding:18px 32px;border-top:1px solid #eaeaea;color:#86868b;font-size:12px;">
       Noxeal · noticias y análisis. Recibes este correo como administrador. <br>
-      <a href="https://trending-news-3.preview.emergentagent.com/admin" style="color:#111;">Abrir panel admin →</a>
+      <a href="{base}/admin" style="color:#111;">Abrir panel admin →</a>
     </td></tr>
   </table>
 </body></html>"""
@@ -81,25 +82,60 @@ def notify_admin_login(email: str, name: str, role: str, action: str):
 
 
 def notify_admin_comment(article_title: str, slug: str, user_name: str, body_preview: str):
+    base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
     safe = (body_preview or "")[:240].replace("<", "&lt;").replace(">", "&gt;")
     msg = f"""<h2 style="font-family:Georgia,serif;font-size:22px;margin:0 0 12px;">Nuevo comentario</h2>
 <p><strong>{user_name}</strong> ha comentado en <em>{article_title}</em>:</p>
 <blockquote style="border-left:3px solid #111;padding:8px 16px;color:#1a1a1a;background:#f5f5f7;border-radius:0 10px 10px 0;">{safe}</blockquote>
-<p><a href="https://trending-news-3.preview.emergentagent.com/articulo/{slug}" style="color:#111;">Ver en el sitio →</a></p>"""
+<p><a href="{base}/articulo/{slug}" style="color:#111;">Ver en el sitio →</a></p>"""
     fire(_send(ADMIN_NOTIFY_EMAIL, f"💬 Comentario nuevo — {article_title}", _wrap(msg)))
 
 
-def notify_admin_published(title: str, slug: str, author: str):
-    msg = f"""<h2 style="font-family:Georgia,serif;font-size:22px;margin:0 0 12px;">Artículo publicado</h2>
-<p><strong>{title}</strong></p>
-<p style="color:#86868b;">Autor: {author}</p>
-<p><a href="https://trending-news-3.preview.emergentagent.com/articulo/{slug}" style="color:#111;">Ver en el sitio →</a></p>"""
-    fire(_send(ADMIN_NOTIFY_EMAIL, f"📰 Publicado: {title}", _wrap(msg)))
+def notify_admin_published(title: str, slug: str, author: str,
+                           excerpt: str = "", body_preview: str = "",
+                           category: str = "", source_url: str = ""):
+    """Rich notification email sent when Make.com publishes a new article.
+
+    Includes excerpt + first paragraph preview + read button + Make/source link.
+    Falls back to minimal version if optional fields missing.
+    """
+    base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
+
+    def esc(s):
+        return (s or "").replace("<", "&lt;").replace(">", "&gt;")
+
+    eyebrow = ""
+    if category:
+        eyebrow = f'<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.18em;color:#86868b;margin-bottom:14px;">{esc(category)} · NUEVO ARTÍCULO</div>'
+    excerpt_html = ""
+    if excerpt:
+        excerpt_html = f'<p style="font-size:17px;line-height:1.55;color:#1a1a1a;margin:0 0 18px;font-weight:500;">{esc(excerpt)}</p>'
+    preview_html = ""
+    if body_preview:
+        preview_html = f'<p style="font-size:15px;line-height:1.7;color:#424245;margin:0 0 22px;border-left:3px solid #111;padding-left:16px;">{esc(body_preview[:420])}…</p>'
+    source_html = ""
+    if source_url:
+        source_html = f'<p style="margin:18px 0 0;font-size:13px;color:#86868b;">Fuente original: <a href="{esc(source_url)}" style="color:#111;word-break:break-all;">{esc(source_url[:80])}</a></p>'
+
+    msg = f"""{eyebrow}
+<h2 style="font-family:Georgia,serif;font-size:30px;line-height:1.1;letter-spacing:-0.02em;margin:0 0 18px;color:#111;">{esc(title)}</h2>
+{excerpt_html}
+{preview_html}
+<p style="margin:24px 0 14px;">
+  <a href="{base}/articulo/{slug}" style="display:inline-block;padding:14px 28px;background:#111;color:#fff;border-radius:9999px;text-decoration:none;font-weight:500;font-size:15px;">Leer el artículo completo →</a>
+</p>
+<p style="margin:0;color:#86868b;font-size:13px;">Autor: <strong>{esc(author)}</strong> · Slug: <code style="background:#f5f5f7;padding:2px 6px;border-radius:4px;font-size:12px;">{esc(slug)}</code></p>
+{source_html}
+<p style="margin-top:24px;font-size:12px;color:#86868b;">
+  Publicado automáticamente vía Make.com en Noxeal. <br>
+  <a href="{base}/admin" style="color:#111;">Abrir panel admin</a> para editar, despublicar o moderar.
+</p>"""
+    fire(_send(ADMIN_NOTIFY_EMAIL, f"📰 Noxeal · {title[:60]}", _wrap(msg, title)))
 
 
 async def send_newsletter_blast(article: dict, subscribers: list):
     """Send the published article to all newsletter subscribers."""
-    base = "https://trending-news-3.preview.emergentagent.com"
+    base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
     title = article.get("title", "")
     excerpt = article.get("excerpt", "")
     slug = article.get("slug", "")

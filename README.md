@@ -233,9 +233,9 @@ Si usas Vercel `experimentalServices` (frontend + backend en el mismo repo, como
 | `FRONTEND_URL` | `https://noxeal.com` | ⭐ para sitemap correcto |
 | `ADMIN_EMAIL` | `noxael18@gmail.com` | ⭐ admin seed |
 | `ADMIN_PASSWORD` | (tu password) | ⭐ admin seed |
-| `RESEND_API_KEY` | (opcional, para emails) | ❌ |
-| `SENDER_EMAIL` | `onboarding@resend.dev` o tu dominio verificado | ❌ |
-| `ADMIN_NOTIFY_EMAIL` | tu correo personal | ❌ |
+| `RESEND_API_KEY` | `re_xxxxxxxxxxxx` (saca tu key en https://resend.com/api-keys) | ⭐ para que llegue email cuando Make publica |
+| `ADMIN_NOTIFY_EMAIL` | `noxael18@gmail.com` (donde recibirás avisos) | ⭐ destinatario emails admin |
+| `SENDER_EMAIL` | `onboarding@resend.dev` o `noxeal@<tu-dominio-verificado>` | ⭐ remitente |
 | `EMERGENT_LLM_KEY` | (no aplica en Vercel — paquete privado) | ❌ |
 
 Y para el servicio frontend:

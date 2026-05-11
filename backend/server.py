@@ -798,7 +798,16 @@ async def make_create_article(data: MakeArticleIn, _ok: bool = Depends(require_m
     }
     await db.articles.insert_one(doc)
     if status == "published":
-        email_service.notify_admin_published(doc["title"], slug, doc["author"])
+        first_para = paragraphs[0] if paragraphs else ""
+        email_service.notify_admin_published(
+            title=doc["title"],
+            slug=slug,
+            author=doc["author"],
+            excerpt=excerpt,
+            body_preview=first_para,
+            category=category,
+            source_url=doc.get("source_url", ""),
+        )
 
     base_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
     return {
