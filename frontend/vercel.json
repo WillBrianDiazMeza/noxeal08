@@ -5,6 +5,14 @@
   "framework": "create-react-app",
   "rewrites": [
     {
+      "source": "/sitemap.xml",
+      "destination": "https://trending-news-3.preview.emergentagent.com/api/sitemap.xml"
+    },
+    {
+      "source": "/robots.txt",
+      "destination": "https://trending-news-3.preview.emergentagent.com/api/robots.txt"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://trending-news-3.preview.emergentagent.com/api/:path*"
     },

@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /
+
+# Disallow admin / auth pages — keep them out of the index
+Disallow: /admin
+Disallow: /entrar
+Disallow: /api/admin/
+
+# Block AI-content scrapers if you don't want training
+# User-agent: GPTBot
+# Disallow: /
+# User-agent: CCBot
+# Disallow: /
+
+Sitemap: https://noxeal.com/sitemap.xml
+Sitemap: https://noxeal.com/api/sitemap.xml

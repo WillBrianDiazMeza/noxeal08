@@ -1618,15 +1618,39 @@ from fastapi.responses import Response as PlainResponse
 @app.get("/sitemap.xml")
 async def sitemap():
     base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
-    static_paths = ["/", "/explorar", "/tendencias", "/categorias", "/buscar", "/suscribirse", "/entrar"]
-    articles = await db.articles.find({}, {"_id": 0, "slug": 1, "published_at": 1}).to_list(1000)
+    static_paths = [
+        ("/", "daily", "1.0"),
+        ("/explorar", "daily", "0.9"),
+        ("/tendencias", "daily", "0.9"),
+        ("/categorias", "weekly", "0.8"),
+        ("/buscar", "weekly", "0.5"),
+        ("/suscribirse", "monthly", "0.5"),
+        ("/about", "monthly", "0.4"),
+        ("/privacy", "monthly", "0.3"),
+        ("/terms", "monthly", "0.3"),
+        ("/cookies", "monthly", "0.3"),
+        ("/disclaimer", "monthly", "0.3"),
+        ("/contact", "monthly", "0.4"),
+    ]
     urls = []
-    for p in static_paths:
-        urls.append(f"<url><loc>{base}{p}</loc><changefreq>daily</changefreq></url>")
-    for a in articles:
-        loc = f"{base}/articulo/{a['slug']}"
-        lastmod = a.get("published_at", "")[:10]
-        urls.append(f"<url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq></url>")
+    for p, freq, prio in static_paths:
+        urls.append(f"<url><loc>{base}{p}</loc><changefreq>{freq}</changefreq><priority>{prio}</priority></url>")
+    if db is not None:
+        try:
+            articles = await db.articles.find(
+                PUBLIC_STATUS_FILTER,
+                {"_id": 0, "slug": 1, "published_at": 1, "updated_at": 1},
+            ).sort("published_at", -1).to_list(5000)
+            for a in articles:
+                loc = f"{base}/articulo/{a['slug']}"
+                lastmod = (a.get("updated_at") or a.get("published_at", ""))[:10]
+                urls.append(
+                    f"<url><loc>{loc}</loc>"
+                    + (f"<lastmod>{lastmod}</lastmod>" if lastmod else "")
+                    + "<changefreq>weekly</changefreq><priority>0.7</priority></url>"
+                )
+        except Exception as e:
+            logging.warning(f"sitemap article enumeration failed: {e}")
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
@@ -1640,13 +1664,21 @@ async def sitemap():
 @app.get("/robots.txt")
 async def robots():
     base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
-    txt = f"User-agent: *\nAllow: /\nSitemap: {base}/api/sitemap.xml\n"
+    txt = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /admin\n"
+        "Disallow: /entrar\n"
+        "Disallow: /api/admin/\n\n"
+        f"Sitemap: {base}/sitemap.xml\n"
+        f"Sitemap: {base}/api/sitemap.xml\n"
+    )
     return PlainResponse(content=txt, media_type="text/plain")
 
-# CORS — accept any *.preview.emergentagent.com host plus localhost dev
+# CORS — accept noxeal.com, preview Emergent hosts and localhost dev
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://(localhost(:\d+)?|.*\.preview\.emergentagent\.com)$",
+    allow_origin_regex=r"^https?://(localhost(:\d+)?|.*\.preview\.emergentagent\.com|.*\.vercel\.app|noxeal\.com|www\.noxeal\.com)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
