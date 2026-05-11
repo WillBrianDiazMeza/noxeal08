@@ -362,20 +362,32 @@ async def create_comment(slug: str, data: CommentIn, user: dict = Depends(get_cu
     article = await db.articles.find_one({"slug": slug}, {"_id": 0, "slug": 1, "title": 1})
     if not article:
         raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    # If reply, parent must exist on same article
+    if data.parent_id:
+        parent = await db.comments.find_one({"id": data.parent_id, "article_slug": slug}, {"_id": 0, "id": 1})
+        if not parent:
+            raise HTTPException(status_code=400, detail="Comentario padre no encontrado")
     doc = {
         "id": str(uuid.uuid4()),
         "article_slug": slug,
         "user_id": user["id"],
         "user_name": user.get("name") or user.get("email"),
         "user_role": user.get("role", "user"),
-        "body": data.body.strip(),
+        "body": _sanitize(data.body.strip()),
         "parent_id": data.parent_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "likes": 0,
+        "reports": 0,
         "deleted": False,
     }
     await db.comments.insert_one(doc)
     doc.pop("deleted", None)
     doc.pop("_id", None)
+    # Auto-increment article comment count + controversy score
+    await db.articles.update_one(
+        {"slug": slug},
+        {"$inc": {"comments_count": 1, "controversy_score": 1}},
+    )
     email_service.notify_admin_comment(article.get("title", slug), slug, doc["user_name"], doc["body"])
     return doc
 
@@ -388,8 +400,46 @@ async def delete_comment(comment_id: str, user: dict = Depends(get_current_user)
         raise HTTPException(status_code=404, detail="Comentario no encontrado")
     if user.get("role") != "admin" and comment.get("user_id") != user["id"]:
         raise HTTPException(status_code=403, detail="No autorizado")
+    if comment.get("deleted"):
+        return {"ok": True}
     await db.comments.update_one({"id": comment_id}, {"$set": {"deleted": True}})
+    # Decrement article comment count (floor 0)
+    await db.articles.update_one(
+        {"slug": comment["article_slug"], "comments_count": {"$gt": 0}},
+        {"$inc": {"comments_count": -1}},
+    )
     return {"ok": True}
+
+
+@api_router.post("/comments/{comment_id}/like")
+async def like_comment(comment_id: str):
+    """Anonymous: client dedupes via localStorage."""
+    res = await db.comments.update_one(
+        {"id": comment_id, "deleted": {"$ne": True}},
+        {"$inc": {"likes": 1}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Comentario no encontrado")
+    return {"ok": True}
+
+
+@api_router.post("/comments/{comment_id}/report")
+async def report_comment(comment_id: str):
+    """Anonymous report; auto-hide threshold = 5 reports."""
+    res = await db.comments.update_one(
+        {"id": comment_id, "deleted": {"$ne": True}},
+        {"$inc": {"reports": 1}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Comentario no encontrado")
+    c = await db.comments.find_one({"id": comment_id}, {"_id": 0, "reports": 1, "article_slug": 1})
+    if (c.get("reports") or 0) >= 5:
+        await db.comments.update_one({"id": comment_id}, {"$set": {"deleted": True}})
+        await db.articles.update_one(
+            {"slug": c["article_slug"], "comments_count": {"$gt": 0}},
+            {"$inc": {"comments_count": -1}},
+        )
+    return {"ok": True, "reports": c.get("reports", 1)}
 
 
 # ---------- View counter & Most read (public) ----------
@@ -594,6 +644,9 @@ class MakeArticleIn(BaseModel):
     meta_description: Optional[str] = None
     image: Optional[str] = ""
     image_prompt: Optional[str] = ""
+    sourceUrl: Optional[str] = ""
+    authorName: Optional[str] = "Noxeal AI"
+    status: Optional[str] = None          # "published" | "draft" — overrides `publish`
     publish: Optional[bool] = True
 
 
@@ -610,34 +663,50 @@ def _map_category(name: str) -> str:
         return "Salud y redes"
     if n == "ia" or "inteligencia" in n:
         return "IA"
+    if any(k in n for k in ["controv", "polem", "debate", "teoria", "conspir"]):
+        return "Investigación"
     return "Cultura digital"
 
 
+_SCRIPT_RE = __import__("re").compile(r"<script[^>]*>.*?</script>|<iframe[^>]*>.*?</iframe>|on\w+\s*=", __import__("re").IGNORECASE | __import__("re").DOTALL)
+def _sanitize(text: str) -> str:
+    """Remove <script>, <iframe> and inline event handlers. Safe for plain editorial content."""
+    if not text:
+        return ""
+    return _SCRIPT_RE.sub("", text)
+
+
 async def require_make_key(x_api_key: Optional[str] = Header(None)):
-    if not MAKE_API_KEY:
-        raise HTTPException(status_code=503, detail="Automation desactivada (MAKE_API_KEY no configurada)")
-    if x_api_key != MAKE_API_KEY:
-        raise HTTPException(status_code=401, detail="API key inválida. Envía header 'X-API-Key' con el valor correcto.")
+    """If MAKE_API_KEY is set in env, demand it. Otherwise (dev) allow."""
+    if MAKE_API_KEY:
+        if x_api_key != MAKE_API_KEY:
+            raise HTTPException(status_code=401, detail="API key inválida. Envía header 'X-API-Key' con el valor correcto.")
     return True
 
 
 @app.post("/api/articles")
 async def make_create_article(data: MakeArticleIn, _ok: bool = Depends(require_make_key)):
     """Public endpoint for Make.com / Zapier / external automation.
-    Auth via header `X-API-Key: <MAKE_API_KEY>`.
-    Accepts the exact JSON your Claude prompt produces.
+    If MAKE_API_KEY env is set, requires header X-API-Key. Otherwise allowed (dev).
+    Accepts both `body: [paragraphs]` and `content: "long string"`.
     """
 
     if data.body and isinstance(data.body, list):
-        paragraphs = [p.strip() for p in data.body if p and p.strip()]
+        paragraphs = [_sanitize(p.strip()) for p in data.body if p and p.strip()]
     elif data.content:
-        paragraphs = [p.strip() for p in data.content.split("\n\n") if p.strip()]
+        clean = _sanitize(data.content)
+        paragraphs = [p.strip() for p in clean.split("\n\n") if p.strip()]
         if len(paragraphs) <= 1:
-            paragraphs = [p.strip() for p in data.content.split("\n") if p.strip()]
+            paragraphs = [p.strip() for p in clean.split("\n") if p.strip()]
     else:
         paragraphs = []
     if not paragraphs:
-        raise HTTPException(status_code=400, detail="Necesito 'content' (string) o 'body' (list).")
+        raise HTTPException(status_code=400, detail="Necesito 'content' (string) o 'body' (list) con texto válido.")
+
+    # Hard limit ~50k chars to avoid abuse
+    total_len = sum(len(p) for p in paragraphs)
+    if total_len > 50_000:
+        raise HTTPException(status_code=413, detail="Contenido demasiado largo (>50k chars).")
 
     category = _map_category(data.category)
     base_slug = ai_service.slugify(data.title)
@@ -646,45 +715,115 @@ async def make_create_article(data: MakeArticleIn, _ok: bool = Depends(require_m
     while await db.articles.find_one({"slug": slug}):
         n += 1; slug = f"{base_slug}-{n}"
 
-    excerpt = (data.excerpt or "")[:280]
+    excerpt = _sanitize((data.excerpt or "").strip())[:280]
     if not excerpt and paragraphs:
         excerpt = paragraphs[0][:280]
+
+    # Resolve status: explicit `status` field wins over `publish` flag
+    status = "draft"
+    if data.status in ("published", "draft"):
+        status = data.status
+    elif data.publish:
+        status = "published"
 
     now = datetime.now(timezone.utc).isoformat()
     doc = {
         "id": str(uuid.uuid4()),
         "slug": slug,
-        "status": "published" if data.publish else "draft",
-        "title": (data.seoTitle or data.title)[:200],
+        "status": status,
+        "title": _sanitize((data.seoTitle or data.title).strip())[:200],
         "excerpt": excerpt,
         "body": paragraphs,
         "category": category,
         "category_slug": CATEGORY_TO_SLUG[category],
         "tags": [t.lower().strip().replace(" ", "-") for t in (data.tags or []) if t][:10],
-        "meta_description": (data.meta_description or data.seoDescription or excerpt)[:200],
+        "meta_description": _sanitize((data.meta_description or data.seoDescription or excerpt).strip())[:200],
+        "seo_title": _sanitize((data.seoTitle or data.title).strip())[:200] if data.seoTitle else "",
+        "seo_description": _sanitize((data.seoDescription or "").strip())[:200],
+        "source_url": (data.sourceUrl or "").strip()[:500],
         "image_prompt": data.image_prompt or data.title,
         "image": data.image or "",
-        "author": "Noxeal AI",
+        "author": data.authorName or "Noxeal AI",
         "created_by": "make.com",
         "created_at": now,
+        "updated_at": now,
         "published_at": now,
-        "read_time": max(3, len(" ".join(paragraphs)) // 1000),
+        "read_time": max(3, total_len // 1000),
         "hero": False, "side": False, "viral": False, "trending": False,
+        # Engagement counters
         "views": 0,
+        "likes": 0,
+        "comments_count": 0,
+        "viral_score": 0,
+        "controversy_score": 0,
     }
     await db.articles.insert_one(doc)
-    if data.publish:
-        email_service.notify_admin_published(doc["title"], slug, "Noxeal AI")
+    if status == "published":
+        email_service.notify_admin_published(doc["title"], slug, doc["author"])
 
     base_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
     return {
+        "success": True,
         "ok": True,
         "id": doc["id"],
         "slug": slug,
-        "status": doc["status"],
+        "status": status,
         "url": f"{base_url}/articulo/{slug}",
         "admin_url": f"{base_url}/admin",
     }
+
+
+# ---------- Public engagement: likes & saves ----------
+@api_router.post("/articles/{slug}/like")
+async def like_article(slug: str):
+    """Anonymous: just increments. Client dedupes via localStorage."""
+    res = await db.articles.update_one(
+        {"slug": slug, **PUBLIC_STATUS_FILTER},
+        {"$inc": {"likes": 1, "viral_score": 1}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    doc = await db.articles.find_one({"slug": slug}, {"_id": 0, "likes": 1})
+    return {"ok": True, "likes": doc.get("likes", 1)}
+
+
+@api_router.post("/articles/{slug}/unlike")
+async def unlike_article(slug: str):
+    res = await db.articles.update_one(
+        {"slug": slug, **PUBLIC_STATUS_FILTER, "likes": {"$gt": 0}},
+        {"$inc": {"likes": -1}},
+    )
+    if res.matched_count == 0:
+        return {"ok": False}
+    doc = await db.articles.find_one({"slug": slug}, {"_id": 0, "likes": 1})
+    return {"ok": True, "likes": doc.get("likes", 0)}
+
+
+# ---------- Trending / Controversial / Most-commented public feeds ----------
+@api_router.get("/feed/trending")
+async def feed_trending(limit: int = 6):
+    """Highest viral_score first, falls back to views for legacy docs."""
+    items = await db.articles.find(PUBLIC_STATUS_FILTER, {"_id": 0}).sort(
+        [("viral_score", -1), ("views", -1), ("published_at", -1)]
+    ).limit(limit).to_list(limit)
+    return items
+
+
+@api_router.get("/feed/controversial")
+async def feed_controversial(limit: int = 6):
+    """Highest controversy_score first (manually flagged or comment-driven)."""
+    items = await db.articles.find(PUBLIC_STATUS_FILTER, {"_id": 0}).sort(
+        [("controversy_score", -1), ("comments_count", -1), ("published_at", -1)]
+    ).limit(limit).to_list(limit)
+    return items
+
+
+@api_router.get("/feed/most-commented")
+async def feed_most_commented(limit: int = 6):
+    items = await db.articles.find(PUBLIC_STATUS_FILTER, {"_id": 0}).sort(
+        [("comments_count", -1), ("published_at", -1)]
+    ).limit(limit).to_list(limit)
+    return items
 
 
 
@@ -952,6 +1091,14 @@ async def admin_list_comments(_admin: dict = Depends(require_admin), include_del
     return items
 
 
+@api_router.get("/admin/comments/reported")
+async def admin_list_reported(_admin: dict = Depends(require_admin)):
+    items = await db.comments.find(
+        {"reports": {"$gt": 0}}, {"_id": 0}
+    ).sort("reports", -1).to_list(200)
+    return items
+
+
 @api_router.get("/admin/users")
 async def admin_list_users(_admin: dict = Depends(require_admin)):
     users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
@@ -1203,11 +1350,26 @@ async def on_startup():
     await db.articles.create_index("tags")
     await db.articles.create_index("category_slug")
     await db.articles.create_index("status")
+    await db.articles.create_index([("viral_score", -1)])
+    await db.articles.create_index([("controversy_score", -1)])
+    await db.articles.create_index([("comments_count", -1)])
     await db.newsletter.create_index("email", unique=True)
     await db.comments.create_index("article_slug")
     await db.comments.create_index("id", unique=True)
     await seed_admin()
     await seed_articles()
+    # Backfill engagement counters on legacy docs
+    await db.articles.update_many(
+        {"likes": {"$exists": False}},
+        {"$set": {"likes": 0, "comments_count": 0, "viral_score": 0, "controversy_score": 0}},
+    )
+    # Recompute comments_count from real comments collection (safe re-run)
+    pipeline = [
+        {"$match": {"deleted": {"$ne": True}}},
+        {"$group": {"_id": "$article_slug", "n": {"$sum": 1}}},
+    ]
+    async for r in db.comments.aggregate(pipeline):
+        await db.articles.update_one({"slug": r["_id"]}, {"$set": {"comments_count": r["n"]}})
 
 
 @app.on_event("shutdown")

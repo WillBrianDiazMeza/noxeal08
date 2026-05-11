@@ -5,6 +5,8 @@ import { Toaster } from "sonner";
 import { AuthProvider } from "@/contexts/AuthContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import AdSenseLoader from "@/components/AdSenseLoader";
+import GAnalytics from "@/components/GAnalytics";
 import Home from "@/pages/Home";
 import Explorar from "@/pages/Explorar";
 import Tendencias from "@/pages/Tendencias";
@@ -16,6 +18,7 @@ import Suscribirse from "@/pages/Suscribirse";
 import Static from "@/pages/Static";
 import Admin from "@/pages/Admin";
 import ProtectedAdmin from "@/components/ProtectedAdmin";
+import { About, Privacy, Terms, Cookies, Disclaimer, Contact } from "@/pages/Legal";
 
 function App() {
   return (
@@ -24,6 +27,8 @@ function App() {
         <AuthProvider>
           <Toaster position="bottom-right" richColors closeButton />
           <BrowserRouter>
+          <AdSenseLoader />
+          <GAnalytics />
           <Header />
           <Routes>
             <Route path="/" element={<Home />} />
@@ -35,24 +40,20 @@ function App() {
             <Route path="/entrar" element={<Entrar />} />
             <Route path="/suscribirse" element={<Suscribirse />} />
             <Route path="/admin" element={<ProtectedAdmin><Admin /></ProtectedAdmin>} />
-            <Route path="/contacto" element={
-              <Static title="Contacto" body={[
-                "Para colaboraciones editoriales, prensa o sugerencias de temas: hola@noxeal.com.",
-                "Respondemos en menos de 48 horas hábiles. Si tu mensaje es sobre un artículo específico, incluye el enlace.",
-              ]} />
-            } />
-            <Route path="/privacidad" element={
-              <Static title="Política de privacidad" body={[
-                "En Noxeal solo guardamos los datos estrictamente necesarios para que el servicio funcione: tu correo si te suscribes a la newsletter, y tu cuenta si decides registrarte.",
-                "No vendemos datos a terceros. No usamos cookies de seguimiento de redes publicitarias. Si quieres ejercer tus derechos de acceso, rectificación o eliminación, escríbenos.",
-              ]} />
-            } />
-            <Route path="/terminos" element={
-              <Static title="Términos de uso" body={[
-                "Al usar Noxeal aceptas leer críticamente. El contenido publicado es trabajo editorial original o debidamente citado y se ofrece con fines informativos.",
-                "Está prohibido reproducir artículos completos sin permiso por escrito. Citar fragmentos con atribución y enlace está expresamente permitido.",
-              ]} />
-            } />
+
+            {/* Legal pages — EN and ES routes both supported */}
+            <Route path="/about" element={<About />} />
+            <Route path="/sobre" element={<About />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/privacidad" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/terminos" element={<Terms />} />
+            <Route path="/cookies" element={<Cookies />} />
+            <Route path="/disclaimer" element={<Disclaimer />} />
+            <Route path="/aviso" element={<Disclaimer />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route path="/contacto" element={<Contact />} />
+
             <Route path="*" element={
               <Static title="Página no encontrada" body={["La URL que buscas no existe. Vuelve al inicio o explora el archivo."]} />
             } />

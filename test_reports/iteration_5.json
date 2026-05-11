@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 5 full-stack test of Noxeal — Make.com POST /api/articles, engagement (likes/unlikes/comments/replies/reports), new home feeds (trending/controversial/most-commented), sanitization, JSON-LD NewsArticle, legal pages, GA4/AdSense conditional load, image-free UI. Backend: 17/17 iter5 pytest pass (100%). Frontend: 100% — Home shows all 3 new sections (debate-section, controversial-section, most-commented-section), article page exposes article-engagement + like/save/views/comments pills + article-source (when source_url set, nofollow rel), JSON-LD NewsArticle injected; Like button increments 0→1, persists to localStorage 'noxeal_liked_articles', second click flips back to 0 and clears LS; Save button persists to 'noxeal_saved_articles' and shows 'Guardado' sonner toast; Login as admin (admin@noxeal.com / Noxeal2026!) works, posting a comment from logged-in admin yields data-testids comment-form, comment-textarea, comment-submit, comment-{id}, comment-like-{id}, comment-reply-{id}, comment-report-{id} all present and wired; legal pages /about /privacy /terms /cookies /disclaimer /contact return 200 with correct h1 + body content; Home and article and /explorar have ZERO <img> in <main>; GA4 loaded (window.gtag function, dataLayer array, googletagmanager script tag present) because REACT_APP_GA_ID=G-S3TMB4WYWS; AdSense NOT loaded (no adsbygoogle script) because REACT_APP_ADSENSE_CLIENT_ID is empty — correct conditional behavior. Backend POST /api/articles: no-key=401, wrong-key=401, correct-key + status:'published' returns {success:true, ok:true, slug, url, status} and the created article has new fields likes/comments_count/viral_score/controversy_score=0, source_url set, author='Noxeal AI'. Sanitization removes <script>alert(1)</script> from excerpt/content as expected. Likes/unlikes increment+decrement (viral_score follows likes), unlike at 0 doesn't go negative. Feed endpoints /api/feed/{trending|controversial|most-commented} return sorted lists (regression for route-shadowing: NOT captured by /articles/{slug}). Comments: POST with auth increments comments_count + controversy_score on the article; DELETE decrements; reply with valid parent_id creates nested comment; invalid parent_id returns 400; report increments and at 5 reports auto soft-deletes (next report returns 404, comment hidden from public listing). /api/admin/comments/reported gated by admin auth (401 anon) and returns only comments with reports>0. /api/sitemap.xml returns valid XML with noxeal.com URLs. Article 'trending-news-3' literal slug from review request DOES NOT exist — that's actually just the preview subdomain prefix; tests used real first-article slug instead.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/articles (Make.com)", "issue": "Endpoint declared on @app (root app) rather than @api_router — works but inconsistent with the rest of the routes. Cosmetic only."},
+      {"endpoint": "POST /api/articles (Make.com)", "issue": "MAKE_API_KEY checked via plain string compare (line 682: x_api_key != MAKE_API_KEY) — vulnerable to timing attacks. Replace with hmac.compare_digest for defense in depth."},
+      {"endpoint": "DELETE /api/comments/{id}", "issue": "When admin deletes a comment that has replies, replies stay orphaned (their parent_id points to deleted comment). UI currently still renders them with empty parent — consider cascading soft-delete or hiding orphans."},
+      {"endpoint": "POST /api/comments/{id}/report", "issue": "Anonymous + unbounded — any client can spam reports. Consider IP throttle or fingerprint dedupe; right now a single attacker can hit 5 reports in <1 second and silence any comment."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Article body", "issues": ["Initial-letter drop-cap (first letter as oversized serif) renders large in current layout; for very short articles like the test ones (p1 / p2) it looks visually awkward (huge 'p' next to 'p1' content). Not a bug, but on real articles it works fine."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration5.py",
+    "/app/test_reports/pytest/iter5_results.xml"
+  ],
+  "action_items": [
+    "[Low priority] Replace plain string compare for MAKE_API_KEY with hmac.compare_digest in server.py line ~682 to mitigate timing-attack class of issues.",
+    "[Low priority] Add rate limit on POST /api/comments/{id}/report (e.g., 1 report per IP per comment per hour) to prevent coordinated silencing.",
+    "[Low priority] Decide policy on orphaned replies when parent is admin-deleted: either cascade soft-delete the thread or hide replies whose parent is missing."
+  ],
+  "critical_code_review_comments": [
+    "POST /api/articles is registered on @app.post (line 687) instead of api_router; mixing styles is harmless but inconsistent. Recommend porting to api_router and removing the manual /api prefix.",
+    "_sanitize regex strips <script>/<iframe>/on*= but does NOT escape <, >, & — works because frontend renders body as plain text (split by paragraphs), but if any consumer ever does dangerouslySetInnerHTML on body[], stored XSS becomes possible. Document this contract or use bleach.",
+    "PUBLIC_STATUS_FILTER appears in 6+ places; consider centralizing to a helper get_published_query() for maintainability.",
+    "report_comment auto-deletes at 5 but the threshold (5) is hardcoded; expose via env REPORT_AUTOHIDE_THRESHOLD for easy tuning.",
+    "Make.com endpoint accepts both 'content' (string) and 'body' (list) — supported, documented in code comment, good. However 'body' is also a Pydantic field name conflict risk in FastAPI; rename to 'paragraphs' for clarity (minor)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration5.py (NEW — 17 tests)",
+    "/app/test_reports/pytest/iter5_results.xml (NEW)",
+    "/app/test_reports/iteration_5.json (this report)"
+  ],
+  "success_rate": {"backend": "100% (17/17 iter5 + previous 73/74 regression maintained)", "frontend": "100% — all data-testids verified, all legal pages render, GA4/AdSense conditional correct, no <img> in <main>, like/save persistence + toast confirmed, comment posting + nested testids confirmed"},
+  "test_credentials": "admin@noxeal.com / Noxeal2026! verified working via UI login at /entrar (redirects to /). The CEO email in /app/memory/test_credentials.md (noxael18@gmail.com) was NOT tested — admin@noxeal.com from /app/backend/.env is the canonical seeded admin and works.",
+  "seed_data_creation": "Created 3 TEST_* published articles via Make.com endpoint: TEST_Make_iter5_xxxx (with source_url='https://example.com/source'), TEST_xss_xxxx (XSS sanitization probe), TEST_floor_xxxx (likes floor probe). Also created 1 admin comment 'UI test comment iter5 …' on article noxeal-report-las-tendencias-virales-que-sacudieron-la-red-esta-semana. Article DB count grew from ~31 → 34 over the run. None of these block functionality; admin can delete them from /admin if desired.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/ -v --tb=short. iter5 file = /app/backend/tests/test_iteration5.py (17 tests, all pass in ~7s). Admin login is admin@noxeal.com / Noxeal2026!. MAKE_KEY = noxeal-make-7f3a9b2c8d4e5f6a1b9c3d8e7f2a5b6c. Real article slugs vary; use first slug from GET /api/articles for view/like/comment tests. The literal slug 'trending-news-3' from the review request is the preview-subdomain prefix, not an actual article. Engagement counters (likes/comments_count/viral_score/controversy_score) are wired on both Make.com-created and seeded articles. New home sections debate-section/controversial-section/most-commented-section render correctly. JSON-LD NewsArticle present on article pages, WebSite on home. GA4 G-S3TMB4WYWS loads via REACT_APP_GA_ID; AdSense gated by REACT_APP_ADSENSE_CLIENT_ID (empty = no script). Comment auto-hide threshold is 5 reports; sanitization strips <script>/<iframe>/on*=.",
+  "rca of the issue": "No critical issues found this iteration. Three low-priority hardening recommendations (timing-safe API key compare, report rate-limit, orphan-reply policy) noted in action_items. The iter4 critical route-ordering bug (/api/articles/most-read shadowed) is verified FIXED — most-read is now at line 270, before /articles/{slug} at line 278, and feed/* endpoints are not shadowed either."
+}

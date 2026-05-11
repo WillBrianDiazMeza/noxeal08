@@ -14,15 +14,11 @@
         <meta property="og:locale" content="es_ES" />
         <meta name="twitter:card" content="summary_large_image" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
-
-        <!-- Google Analytics 4 (Noxeal) -->
-        <script async src="https://www.googletagmanager.com/gtag/js?id=G-S3TMB4WYWS"></script>
-        <script>
-          window.dataLayer = window.dataLayer || [];
-          function gtag(){dataLayer.push(arguments);}
-          gtag('js', new Date());
-          gtag('config', 'G-S3TMB4WYWS', { anonymize_ip: true });
-        </script>
+        <!--
+        Google Analytics 4 and AdSense are loaded dynamically by React via
+        REACT_APP_GA_ID and REACT_APP_ADSENSE_CLIENT_ID environment variables.
+        See: frontend/src/components/GAnalytics.jsx and AdSenseLoader.jsx
+        -->
         <!--
         manifest.json provides metadata used when your web app is installed on a
         user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/

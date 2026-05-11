@@ -13,6 +13,9 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
   const [mostRead, setMostRead] = useState([]);
+  const [trending, setTrending] = useState([]);
+  const [controversial, setControversial] = useState([]);
+  const [mostCommented, setMostCommented] = useState([]);
   const serverStatsRef = useRef(null);
 
   useEffect(() => {
@@ -31,6 +34,9 @@ export default function Home() {
         });
       }).catch(() => {});
       api.get("/articles/most-read?limit=4").then(({ data }) => setMostRead(data || [])).catch(() => {});
+      api.get("/feed/trending?limit=4").then(({ data }) => setTrending(data || [])).catch(() => {});
+      api.get("/feed/controversial?limit=3").then(({ data }) => setControversial(data || [])).catch(() => {});
+      api.get("/feed/most-commented?limit=3").then(({ data }) => setMostCommented(data || [])).catch(() => {});
     };
     fetchAll();
     setLoading(false);
@@ -198,12 +204,77 @@ export default function Home() {
             </Link>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {(data.viral || []).map((a) => (
+            {((data.viral && data.viral.length > 0) ? data.viral : trending).slice(0, 4).map((a) => (
               <ViralCard key={a.slug} topic={a.title} slug={a.slug} />
             ))}
           </div>
         </div>
       </section>
+
+      {/* ========== POLÉMICOS + MÁS COMENTADOS (debate & friction) ========== */}
+      {(controversial.length > 0 || mostCommented.length > 0) && (
+        <section className="py-24 border-t border-black/5" data-testid="debate-section">
+          <div className="max-w-7xl mx-auto px-5 lg:px-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 lg:gap-20">
+              {controversial.length > 0 && (
+                <div data-testid="controversial-section">
+                  <div className="flex items-baseline gap-3 mb-8">
+                    <span className="text-rose-600 text-xl">🔥</span>
+                    <div>
+                      <div className="label-eyebrow mb-1">Polémicos</div>
+                      <h2 className="h-display text-2xl md:text-3xl">Lo que más divide hoy</h2>
+                    </div>
+                  </div>
+                  <ol className="space-y-7">
+                    {controversial.map((a, i) => (
+                      <li key={a.slug} className="grid grid-cols-[40px_1fr] gap-5 items-start group" data-testid={`controversial-${i}`}>
+                        <span className="h-display text-4xl text-rose-600/30 tabular-nums">{String(i + 1).padStart(2, "0")}</span>
+                        <Link to={`/articulo/${a.slug}`} className="block">
+                          <div className="label-eyebrow mb-1">{a.category}</div>
+                          <h3 className="h-display text-lg md:text-xl leading-snug group-hover:opacity-80 transition-opacity">{a.title}</h3>
+                          <div className="text-xs text-[#86868b] mt-2 flex gap-3">
+                            <span>{(a.comments_count || 0).toLocaleString("es-ES")} comentarios</span>
+                            <span>·</span>
+                            <span>{(a.controversy_score || 0).toLocaleString("es-ES")} pts polémica</span>
+                          </div>
+                        </Link>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
+              {mostCommented.length > 0 && (
+                <div data-testid="most-commented-section">
+                  <div className="flex items-baseline gap-3 mb-8">
+                    <span className="text-indigo-600 text-xl">💬</span>
+                    <div>
+                      <div className="label-eyebrow mb-1">Más comentados</div>
+                      <h2 className="h-display text-2xl md:text-3xl">Conversación activa</h2>
+                    </div>
+                  </div>
+                  <ol className="space-y-7">
+                    {mostCommented.map((a, i) => (
+                      <li key={a.slug} className="grid grid-cols-[40px_1fr] gap-5 items-start group" data-testid={`most-commented-${i}`}>
+                        <span className="h-display text-4xl text-indigo-600/30 tabular-nums">{String(i + 1).padStart(2, "0")}</span>
+                        <Link to={`/articulo/${a.slug}`} className="block">
+                          <div className="label-eyebrow mb-1">{a.category}</div>
+                          <h3 className="h-display text-lg md:text-xl leading-snug group-hover:opacity-80 transition-opacity">{a.title}</h3>
+                          <div className="text-xs text-[#86868b] mt-2 flex gap-3">
+                            <span>{(a.comments_count || 0).toLocaleString("es-ES")} comentarios</span>
+                            <span>·</span>
+                            <span>{(a.likes || 0).toLocaleString("es-ES")} likes</span>
+                          </div>
+                        </Link>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ========== LATEST ARTICLES ========== */}
       <section className="py-24" data-testid="latest-section">
