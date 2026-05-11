@@ -259,6 +259,37 @@ Después del primer deploy, prueba estas URLs en orden:
 5. Si todos pasan: ve a Make.com → Run once → primer artículo real publicado.
 6. Envía `https://noxeal.com/api/sitemap.xml` a Google Search Console.
 
+### 🩹 Troubleshooting Vercel
+
+**Error 1: `/api/api/...` en los logs (404)**
+- Causa: `REACT_APP_BACKEND_URL` mal puesto con `/api` al final.
+- ✅ Ya hay doble red de seguridad: `frontend/src/lib/api.js` normaliza la URL Y `server.py` tiene middleware que reescribe `/api/api/*` → `/api/*`. Aún así, lo correcto es:
+  ```
+  ❌ REACT_APP_BACKEND_URL=https://noxeal.com/api
+  ✅ REACT_APP_BACKEND_URL=https://noxeal.com
+  ```
+
+**Error 2: `Startup task failed: localhost:27017`**
+- Causa: falta `MONGO_URL` en Vercel → el backend cae a `localhost`.
+- Solución: añade `MONGO_URL=mongodb+srv://...` en Vercel Settings → Environment Variables → Backend service. Necesitas una cuenta gratis en [MongoDB Atlas](https://cloud.mongodb.com).
+- Verifica con: `curl https://noxeal.com/api/health` → debe decir `"db": true`.
+
+**Error 3: `could not import server.py`**
+- Causa: dependencia faltante. Las más comunes: `emergentintegrations` (privado, ya manejado con try/except), `motor`, `bcrypt`.
+- Solución: revisa `backend/requirements.txt` y comprueba en los Vercel logs qué módulo concreto faltó.
+
+**Error 4: 401 desde Make.com**
+- Causa: falta header `X-API-Key` o valor incorrecto.
+- Solución: header exacto `X-API-Key: noxeal-make-7f3a9b2c8d4e5f6a1b9c3d8e7f2a5b6c` (o el valor que pongas en `MAKE_API_KEY`).
+
+**Error 5: 422 desde Make.com**
+- Causa: falta `title` o `content` en el body JSON.
+- Solución: revisa el módulo HTTP de Make → Body type=Raw, Content-Type=application/json, y mapea `{{title}}` `{{content}}` desde Claude.
+
+**Error 6: CORS bloqueado**
+- Causa: dominio frontend no permitido.
+- Solución: `server.py` tiene `allow_origins=["*"]` en CORS — debería funcionar. Si pones lista cerrada, añade `https://noxeal.com`.
+
 ### Backend alternativo → Railway / Render (recomendado para AI)
 Si quieres mantener las features de generación IA del admin, despliega el backend en Railway o Render (no Vercel) y apunta `REACT_APP_BACKEND_URL` ahí.
 

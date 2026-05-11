@@ -53,6 +53,21 @@ app = FastAPI(title="Noxeal API")
 api_router = APIRouter(prefix="/api")
 
 
+# ---------- Safety net: rewrite duplicated /api/api/* → /api/* ----------
+# Vercel's experimentalServices passes the full path (including /api) to the
+# backend, while the FastAPI router also adds /api. If a frontend ever sends
+# /api/api/... (cached old build, misconfigured REACT_APP_BACKEND_URL ending
+# in /api, etc.), strip the duplicate so the route resolves normally.
+@app.middleware("http")
+async def strip_duplicate_api_prefix(request: Request, call_next):
+    path = request.scope.get("path", "")
+    if path.startswith("/api/api/"):
+        new_path = "/api" + path[len("/api/api"):]
+        request.scope["path"] = new_path
+        request.scope["raw_path"] = new_path.encode("utf-8")
+    return await call_next(request)
+
+
 # ---------- Helpers ----------
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
