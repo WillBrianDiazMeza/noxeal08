@@ -1,0 +1,32 @@
+{
+  "short_name": "Noxeal",
+  "name": "Noxeal — Periodismo lento sobre la cultura digital",
+  "icons": [
+    {
+      "src": "favicon-16.png",
+      "type": "image/png",
+      "sizes": "16x16"
+    },
+    {
+      "src": "favicon-32.png",
+      "type": "image/png",
+      "sizes": "32x32"
+    },
+    {
+      "src": "apple-touch-icon.png",
+      "type": "image/png",
+      "sizes": "180x180"
+    },
+    {
+      "src": "noxeal-logo.png",
+      "type": "image/png",
+      "sizes": "1536x1024",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#0d0d0f",
+  "background_color": "#ffffff"
+}

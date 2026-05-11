@@ -9,5 +9,11 @@
       "entrypoint": "backend",
       "routePrefix": "/api"
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/recompute-homepage",
+      "schedule": "0 6 * * 1"
+    }
+  ]
 }

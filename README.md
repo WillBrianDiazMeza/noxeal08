@@ -66,7 +66,26 @@ POST   /api/articles/{slug}/comments    {body, parent_id?}
 DELETE /api/comments/{id}
 ```
 
-## Integración Make.com — IMPORTANTE
+### `/api/search` — Búsqueda full-text
+```
+GET /api/search?q=epstein&limit=20
+```
+Devuelve `{query, total, results: [...], mode: "text"|"regex"}`.
+- Modo `text`: usa índice MongoDB `$text` con score (idioma español).
+- Modo `regex`: fallback si el índice no existe aún.
+- Mínimo 2 caracteres.
+- Frontend: `/buscar?q=...`
+
+### `/api/cron/recompute-homepage` — Curación automática
+```
+GET/POST /api/cron/recompute-homepage
+Header: X-Cron-Secret: <CRON_SECRET>   (o Authorization: Bearer <CRON_SECRET>)
+```
+Recalcula los flags `hero`/`side`/`viral` según un score híbrido de engagement (likes·3 + comments·5 + viral·2 + log(views)·4) ponderado por recencia (vida media 7 días). 
+- Vercel Cron lo ejecuta automáticamente cada **lunes a las 06:00 UTC** (configurado en `/app/vercel.json`).
+- También se ejecuta automáticamente tras cada publicación de Make.com (versión ligera, ~50ms).
+
+
 
 ### URL del endpoint
 ```
@@ -236,6 +255,7 @@ Si usas Vercel `experimentalServices` (frontend + backend en el mismo repo, como
 | `RESEND_API_KEY` | `re_xxxxxxxxxxxx` (saca tu key en https://resend.com/api-keys) | ⭐ para que llegue email cuando Make publica |
 | `ADMIN_NOTIFY_EMAIL` | `noxael18@gmail.com` (donde recibirás avisos) | ⭐ destinatario emails admin |
 | `SENDER_EMAIL` | `onboarding@resend.dev` o `noxeal@<tu-dominio-verificado>` | ⭐ remitente |
+| `CRON_SECRET` | (64 chars random — genera con `openssl rand -hex 32`) | ⭐ para cron semanal |
 | `EMERGENT_LLM_KEY` | (no aplica en Vercel — paquete privado) | ❌ |
 
 Y para el servicio frontend:

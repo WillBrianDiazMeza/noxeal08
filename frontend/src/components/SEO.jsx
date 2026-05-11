@@ -2,6 +2,7 @@ import { Helmet } from "react-helmet-async";
 
 const SITE_NAME = "Noxeal";
 const SITE_URL = "https://noxeal.com";
+const DEFAULT_OG = `${SITE_URL}/og-image.jpg`;
 
 export default function SEO({
   title,
@@ -11,12 +12,12 @@ export default function SEO({
   path = "",
   article, // { datePublished, dateModified, author, category, tags }
 }) {
-  // Always use the real production canonical, not the preview URL.
   const fullUrl = `${SITE_URL}${path}`;
   const fullTitle = title ? `${title} · ${SITE_NAME}` : `${SITE_NAME} — Periodismo lento sobre la cultura digital`;
   const desc =
     description ||
     "Noxeal transforma tendencias, historias virales y temas complejos en contenido claro, verificable e inteligente.";
+  const ogImage = image || DEFAULT_OG;
 
   const jsonLd = article
     ? {
@@ -61,14 +62,14 @@ export default function SEO({
       <meta property="og:type" content={type} />
       <meta property="og:title" content={fullTitle} />
       <meta property="og:description" content={desc} />
-      {image && <meta property="og:image" content={image} />}
+      <meta property="og:image" content={ogImage} />
       <meta property="og:url" content={fullUrl} />
       <meta property="og:site_name" content={SITE_NAME} />
       <meta property="og:locale" content="es_ES" />
-      <meta name="twitter:card" content={image ? "summary_large_image" : "summary"} />
+      <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:title" content={fullTitle} />
       <meta name="twitter:description" content={desc} />
-      {image && <meta name="twitter:image" content={image} />}
+      <meta name="twitter:image" content={ogImage} />
       <link rel="canonical" href={fullUrl} />
       <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
     </Helmet>

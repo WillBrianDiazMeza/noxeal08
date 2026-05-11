@@ -301,6 +301,49 @@ async def most_read(limit: int = 5):
     return items
 
 
+@api_router.get("/search")
+async def search_articles(q: str = "", limit: int = 20, skip: int = 0):
+    """Public full-text search. Falls back to regex if no text index.
+    Returns {query, total, results: [...]}. Searches title, excerpt, body, tags."""
+    query = (q or "").strip()
+    if not query or len(query) < 2:
+        return {"query": query, "total": 0, "results": []}
+    # Try MongoDB $text index first; fall back to regex if index missing
+    base = PUBLIC_STATUS_FILTER
+    try:
+        # Build text index lazily once
+        try:
+            await db.articles.create_index([
+                ("title", "text"), ("excerpt", "text"),
+                ("body", "text"), ("tags", "text"),
+            ], name="article_search_text", default_language="spanish")
+        except Exception:
+            pass
+        cursor = db.articles.find(
+            {**base, "$text": {"$search": query}},
+            {"_id": 0, "score": {"$meta": "textScore"}},
+        ).sort([("score", {"$meta": "textScore"})]).skip(skip).limit(limit)
+        results = await cursor.to_list(limit)
+        if results:
+            total = await db.articles.count_documents({**base, "$text": {"$search": query}})
+            return {"query": query, "total": total, "results": results, "mode": "text"}
+    except Exception:
+        pass
+    # Regex fallback
+    regex_q = {
+        **base,
+        "$or": [
+            {"title": {"$regex": query, "$options": "i"}},
+            {"excerpt": {"$regex": query, "$options": "i"}},
+            {"tags": {"$regex": query, "$options": "i"}},
+            {"category": {"$regex": query, "$options": "i"}},
+        ],
+    }
+    results = await db.articles.find(regex_q, {"_id": 0}).sort("published_at", -1).skip(skip).limit(limit).to_list(limit)
+    total = await db.articles.count_documents(regex_q)
+    return {"query": query, "total": total, "results": results, "mode": "regex"}
+
+
 @api_router.get("/articles/{slug}")
 async def get_article(slug: str):
     article = await db.articles.find_one({"slug": slug, **PUBLIC_STATUS_FILTER}, {"_id": 0})
@@ -808,6 +851,11 @@ async def make_create_article(data: MakeArticleIn, _ok: bool = Depends(require_m
             category=category,
             source_url=doc.get("source_url", ""),
         )
+        # Auto-recompute homepage curation on every new publish (cheap, ~50ms)
+        try:
+            await _recompute_homepage_flags()
+        except Exception as e:
+            logging.warning(f"homepage recompute after publish failed: {e}")
 
     base_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
     return {
@@ -872,6 +920,100 @@ async def feed_most_commented(limit: int = 6):
         [("comments_count", -1), ("published_at", -1)]
     ).limit(limit).to_list(limit)
     return items
+
+
+# ---------- AUTOMATIC HOMEPAGE CURATION (P2) ----------
+# Recomputes hero/side/viral/trending flags based on engagement scores.
+# Designed to be triggered by:
+#   1. Vercel Cron Jobs weekly (see vercel.json crons config)
+#   2. Manual call: POST /api/cron/recompute-homepage (header X-Cron-Secret or admin)
+#   3. Auto-runs after every Make.com publish (light, cheap version)
+async def _compute_engagement_score(doc: dict) -> float:
+    """Hybrid score: recency-weighted engagement.
+    Recent + viral + commented + popular wins."""
+    from math import log
+    likes = doc.get("likes", 0) or 0
+    views = doc.get("views", 0) or 0
+    comments = doc.get("comments_count", 0) or 0
+    viral = doc.get("viral_score", 0) or 0
+    controversy = doc.get("controversy_score", 0) or 0
+    # Recency factor: half-life ~7 days
+    try:
+        pub = datetime.fromisoformat(doc.get("published_at", "").replace("Z", "+00:00"))
+    except Exception:
+        pub = datetime.now(timezone.utc) - timedelta(days=30)
+    age_days = max(0.1, (datetime.now(timezone.utc) - pub).total_seconds() / 86400)
+    recency = 1.0 / (1.0 + age_days / 7.0)
+    # Engagement weight
+    eng = (likes * 3) + (comments * 5) + (viral * 2) + (controversy * 2) + log(1 + views) * 4
+    return eng * recency
+
+
+async def _recompute_homepage_flags():
+    """Clear all flags and re-assign hero/side/viral based on engagement.
+    Returns dict with counts of changes."""
+    if db is None:
+        return {"ok": False, "error": "no_db"}
+    # Get all published articles
+    published = await db.articles.find(
+        PUBLIC_STATUS_FILTER,
+        {"_id": 0, "slug": 1, "likes": 1, "views": 1, "comments_count": 1,
+         "viral_score": 1, "controversy_score": 1, "published_at": 1},
+    ).to_list(500)
+    if not published:
+        return {"ok": True, "scored": 0, "hero": None, "side": [], "viral": []}
+    # Score and sort
+    scored = []
+    for a in published:
+        s = await _compute_engagement_score(a)
+        scored.append((s, a["slug"]))
+    scored.sort(reverse=True)
+    # Top 1 = hero, next 3 = side, next 4 = viral
+    hero_slug = scored[0][1] if scored else None
+    side_slugs = [s for _, s in scored[1:4]]
+    viral_slugs = [s for _, s in scored[4:8]]
+    # Reset all flags
+    await db.articles.update_many({}, {"$set": {"hero": False, "side": False, "viral": False}})
+    # Apply new flags
+    if hero_slug:
+        await db.articles.update_one({"slug": hero_slug}, {"$set": {"hero": True}})
+    if side_slugs:
+        await db.articles.update_many({"slug": {"$in": side_slugs}}, {"$set": {"side": True}})
+    if viral_slugs:
+        await db.articles.update_many({"slug": {"$in": viral_slugs}}, {"$set": {"viral": True}})
+    return {
+        "ok": True,
+        "scored": len(scored),
+        "hero": hero_slug,
+        "side": side_slugs,
+        "viral": viral_slugs,
+    }
+
+
+CRON_SECRET = os.environ.get("CRON_SECRET", "")
+
+
+@app.post("/api/cron/recompute-homepage")
+@app.post("/cron/recompute-homepage")
+@app.get("/api/cron/recompute-homepage")  # Vercel Cron uses GET
+@app.get("/cron/recompute-homepage")
+async def cron_recompute_homepage(request: Request):
+    """Recompute homepage hero/side/viral flags based on engagement.
+    Auth: header X-Cron-Secret matching CRON_SECRET env, OR admin cookie.
+    Vercel Cron sends Authorization: Bearer <CRON_SECRET> by default."""
+    secret = request.headers.get("x-cron-secret") or request.headers.get("X-Cron-Secret")
+    auth = request.headers.get("authorization", "").replace("Bearer ", "").strip()
+    if CRON_SECRET:
+        if secret != CRON_SECRET and auth != CRON_SECRET:
+            # Allow admin cookie as fallback
+            try:
+                user = await get_current_user(request)
+                if user.get("role") != "admin":
+                    raise HTTPException(status_code=401, detail="Cron secret inválido")
+            except HTTPException:
+                raise HTTPException(status_code=401, detail="Cron secret inválido")
+    result = await _recompute_homepage_flags()
+    return result
 
 
 

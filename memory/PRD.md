@@ -140,6 +140,37 @@ related articles, SEO (helmet, sitemap.xml, robots.txt), polish visual.
 
 **Tests**: backend 17/17 (100%) + frontend completo (todas las testids, GA4 conditional, AdSense gated, 0 `<img>` en `<main>`, like/save persistente, comentarios anidados).
 
+### Iteración 8 (2026-02-10) ⭐ Branding + Search + Cron
+**Branding**
+- ✅ Logo Noxeal subido: `/public/noxeal-logo.png` (1536x1024).
+- ✅ Generados favicon multi-tamaño (16/32/48 ICO + 32/16 PNG + 180 apple-touch).
+- ✅ `og-image.jpg` (1200×630) para preview en X/WhatsApp/LinkedIn.
+- ✅ `manifest.json` PWA-ready con maskable icon.
+- ✅ `index.html` con todos los `<link rel>` y `<meta og:image>` apuntando a noxeal.com.
+- ✅ `SEO.jsx` con fallback OG image por defecto en todas las páginas.
+
+**P1: `/buscar` con full-text search ✅**
+- ✅ Endpoint `GET /api/search?q=...&limit=20&skip=0`.
+- ✅ Modo `$text` con índice MongoDB (idioma español) + fallback regex.
+- ✅ Devuelve `{query, total, results, mode}` con score relevance.
+- ✅ Página `/buscar?q=...` con highlighting amarillo, contador de resultados, estado vacío y clear button.
+- ✅ Sincronización URL ↔ input (compartible).
+
+**P2: Cron job "IA reorganiza la home" ✅**
+- ✅ Función `_compute_engagement_score()`: `(likes·3 + comments·5 + viral·2 + controversy·2 + log(views)·4) × recency_decay(7d)`.
+- ✅ `_recompute_homepage_flags()`: scorea todos los publicados, asigna top1=hero, top2-4=side, top5-8=viral.
+- ✅ Endpoint `GET/POST /api/cron/recompute-homepage` con auth via `X-Cron-Secret` o `Authorization: Bearer <CRON_SECRET>` (fallback admin cookie).
+- ✅ Vercel Cron configurado en `vercel.json`: lunes 06:00 UTC.
+- ✅ **Auto-recompute después de cada publish Make.com** (los nuevos artículos suben al hero si tienen engagement).
+
+**Tests locales**:
+- search "epstein" → mode=text, 1 result ✅
+- search "ia" → mode=text, 13 results ✅
+- cron recompute → 34 articles scored, hero/side/viral asignados ✅
+- favicons + og-image + manifest → HTTP 200 ✅
+- frontend build → 27s, 0 warnings ✅
+
+
 ### Iteración 7 (2026-02-10) ⭐ VERCEL-SAFE
 - ✅ `server.py` ahora importa SIN ninguna env var configurada (defensivo): `MONGO_URL`, `DB_NAME`, `JWT_SECRET` con defaults seguros; `client/db` son `None` si falta MONGO_URL; JWT_SECRET ephemeral si falta.
 - ✅ `ai_service.py`: `from emergentintegrations...` envuelto en `try/except`. `is_available()` para checks. Si el paquete privado falta (caso Vercel), AI generation está deshabilitada pero todo lo demás funciona.
