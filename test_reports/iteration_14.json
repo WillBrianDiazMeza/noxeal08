@@ -1,0 +1,43 @@
+{
+  "summary": "RETEST iter 14 — LanguageSwitcher HIGH bug (from iter 13) is RESOLVED. The onClick now calls window.history.replaceState to sync URL ?lang= with the selected language BEFORE the soft reload, so detectInitial() reads the correct value on hydration. Verified end-to-end via Playwright: 7/7 sub-tests PASS (FR initial load, switcher menu open, FR→EN switch, EN→NL switch, document.documentElement.lang updates, localStorage-only NL regression with no URL param). No backend retesting required (21/21 from iter 13 already green).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Header (all languages)",
+        "issues": [
+          "Auth/CTA buttons 'Entrar' and 'Suscribirse' remain in Spanish on /?lang=fr|en|nl pages. They appear to be hardcoded strings in the header instead of using the t('nav.signin') / t('nav.subscribe') keys (which already exist in DICT for es/en/fr/nl). LOW priority — does not block the i18n flow, but visually inconsistent next to translated nav (Home/Trends/Topics...).",
+          "Console shows 2× '401 Unauthorized' per page load (likely /api/me probe for anon user). Cosmetic, not a regression."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_14.json"
+  ],
+  "action_items": [
+    "(Optional, LOW) Wire the header 'Entrar' / 'Suscribirse' buttons to t('nav.signin') and t('nav.subscribe') so they switch with the rest of the nav. Keys are already present in DICT for all 4 languages.",
+    "(Optional) Silence the anonymous /api/me 401 console noise by returning {user:null} 200 when no session cookie, or catching the 401 client-side."
+  ],
+  "critical_code_review_comments": [
+    "LanguageSwitcher.jsx (lines 48-61) fix is correct and minimal: history.replaceState updates URL ?lang= synchronously inside a try/catch before the setTimeout(reload, 80). detectInitial() in i18n.js (URL > localStorage > navigator) now reads the just-set value, ending the previous override loop.",
+    "i18n.js detectInitial precedence (URL first) remains semantically correct (shareable links with ?lang=xx should win); the switcher just had to keep the URL in sync — fixed.",
+    "Hero h1 now correctly renders dynamic Claude translation in NL ('Ontdek de waarheid voordat het algoritme deze verstoort.') confirming the dynamic translateOnDemand + cache pipeline still works post-fix.",
+    "Soft reload approach (window.location.reload after URL rewrite) is acceptable but heavyweight. A future improvement: drop the reload and trigger re-render via setLangState + cache invalidation, since api.js interceptor already injects lang on every request. Would shave ~1.5s off every language switch."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_14.json (this report)"
+  ],
+  "success_rate": {
+    "backend": "100% (carried from iter 13 — 21/21 pytest, no backend changes in this iteration)",
+    "frontend": "100% — 7/7 retest sub-tests PASS: T1 /?lang=fr initial (badge FR, html.lang=fr, nav in FR) ✅; T2 menu opens ✅; T3-T4 click lang-option-en → URL becomes /?lang=en, badge EN, html.lang=en, nav Home/Trends/Topics/Categories/Explore ✅; T5 click lang-option-nl → URL /?lang=nl, badge NL, html.lang=nl, nav Home/Trends/Onderwerpen/Categorieën/Verkennen ✅; T6 document.documentElement.lang changes (verified 'fr'→'en'→'nl') ✅; T7 localStorage='nl' + visit / (no URL param) → loads in NL ✅."
+  },
+  "test_credentials": "Not required for this retest.",
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 13 HIGH bug RESOLVED. Switcher fix in /app/frontend/src/components/LanguageSwitcher.jsx (onClick lines 48-61). Quick re-verification: page.goto('/?lang=fr') → click lang-switcher-button → click lang-option-en → wait_for_load_state networkidle + 2s → assert page.url contains lang=en + html.lang=='en' + nav contains 'Home','Trends','Topics','Categories','Explore'. Only minor cosmetic: 'Entrar'/'Suscribirse' header buttons still in Spanish (not wired to t() — keys exist in DICT, just need to be used in Header.jsx).",
+  "rca of the issue": "RESOLVED — see iter 13 report for original RCA. Fix applied in LanguageSwitcher.jsx onClick: const url=new URL(window.location.href); url.searchParams.set('lang', l.code); window.history.replaceState({},'',url.toString()); then setTimeout(reload, 80). Verified via Playwright on preview URL — all 3 language transitions (FR→EN, EN→NL) update URL, badge, html.lang, nav text, and localStorage atomically."
+}

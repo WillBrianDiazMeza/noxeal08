@@ -48,8 +48,14 @@ export default function LanguageSwitcher({ compact = true }) {
                 onClick={() => {
                   setLang(l.code);
                   setOpen(false);
-                  // Soft full reload to pick up cached translations for all server-rendered content
+                  // Update URL ?lang= param so detectInitial reads the new value after reload
                   if (typeof window !== "undefined") {
+                    try {
+                      const url = new URL(window.location.href);
+                      url.searchParams.set("lang", l.code);
+                      window.history.replaceState({}, "", url.toString());
+                    } catch { /* ignore */ }
+                    // Soft full reload to pick up cached translations for all server-rendered content
                     setTimeout(() => window.location.reload(), 80);
                   }
                 }}
