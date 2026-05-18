@@ -173,6 +173,60 @@
   }
 }
 
+/* ───────── Immersive Focus Mode (article) ───────── */
+@keyframes nx-focus-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.nx-article-root {
+  animation: nx-focus-fade 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* When focus mode is ON, dim/hide everything except the article + reading bar */
+body.nx-focus-on .nx-header,
+body.nx-focus-on .nx-ticker,
+body.nx-focus-on footer,
+body.nx-focus-on [data-testid="article-meta-row"],
+body.nx-focus-on [data-testid="article-engagement"],
+body.nx-focus-on [data-testid="article-tags"],
+body.nx-focus-on [data-testid="article-source"],
+body.nx-focus-on [data-testid="related-articles"],
+body.nx-focus-on [data-testid="comments-section"] {
+  opacity: 0.18;
+  transition: opacity 350ms ease;
+  pointer-events: none;
+  filter: blur(0.3px);
+}
+body.nx-focus-on .nx-article-root {
+  transition: transform 400ms ease;
+}
+body.nx-focus-on .prose-noxeal p {
+  font-size: 20px;
+  line-height: 1.78;
+  color: #1a1a1a;
+}
+.nx-focus-toggle {
+  padding: 6px 10px;
+  border-radius: 9999px;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: rgba(255,255,255,0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease;
+}
+.nx-focus-toggle:hover {
+  border-color: var(--nx-blue);
+  color: var(--nx-blue);
+}
+body.nx-focus-on .nx-focus-toggle {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  filter: none !important;
+}
+
+/* Premium skeleton variant: subtle, editorial */
+.nx-skeleton.h-4 { height: 16px; }
+.nx-skeleton.h-12 { height: 48px; }
+
 /* Mobile ticker tweak */
 @media (max-width: 640px) {
   .nx-ticker-inner { height: 32px; }

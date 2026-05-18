@@ -195,3 +195,46 @@ related articles, SEO (helmet, sitemap.xml, robots.txt), polish visual.
 4. Si funciona → `Run once` en Make.com → primer artículo publicado.
 5. Enviar `noxeal.com/api/sitemap.xml` a Google Search Console.
 
+
+
+### Iteración 8 (2026-02-18) ⭐ NEXT LEVEL — Inmersión, Guardado y Make.com a prueba de fallos
+- ✅ **Validación estricta Make.com** (`MakeArticleIn` Pydantic v2):
+  - `default_factory=list` para `body` y `tags` (sin mutable defaults).
+  - `@field_validator("body","tags", mode="before")`: tolera `null`, string suelto, lista mixta → lista limpia.
+  - `@field_validator(...strings..., mode="before")`: coacciona `null`/números a string seguro.
+  - `verificationLevel` acepta `"75%"`, `75.0`, `null` → 0–100 clamped.
+  - `publish` acepta `"true"`, `1`, `"yes"`, `null` → bool real.
+  - `factLevel` se normaliza a minúsculas + whitelist. Cualquier valor inválido → `"analysis"` (fallback editorial).
+- ✅ **Endpoint batch `POST /api/articles/by-slugs`**: lookup de N artículos en una sola request, preservando orden y filtrando borrados. Usado por la lista de lectura.
+- ✅ **Página `/guardados` (Lista de lectura)**:
+  - Lee `localStorage["noxeal_saved_articles"]` (sin cuentas, sin tracking).
+  - Self-heal: limpia slugs huérfanos cuando un artículo se borra/despublica.
+  - Empty state editorial + sync entre pestañas vía `storage` event.
+  - Botón "Vaciar lista" + remove individual.
+  - `noindex` (página personal del lector).
+- ✅ **Icono Bookmark en Header** (desktop + mobile) hacia `/guardados`.
+- ✅ **Modo Lectura Inmersivo** en `Articulo.jsx`:
+  - Toggle "Modo lectura" arriba a la derecha (Maximize2 / Minimize2 lucide).
+  - Aplica `body.nx-focus-on`: ticker, header, engagement, tags, comentarios y related se atenúan a opacidad 0.18 + `pointer-events:none`.
+  - Tipografía del body crece (20px / 1.78 line-height) cuando focus está activo.
+  - Cierre con tecla `Escape`.
+  - Animación entrada artículo `nx-focus-fade` (cubic-bezier).
+- ✅ **Skeleton premium de carga** en `Articulo.jsx` (reemplaza el "Cargando…" plano).
+- ✅ **SEO**: prop `noindex` añadida al componente `SEO` para páginas personales.
+
+**Tests pasados**:
+- `POST /api/articles` con `tags:null`, `factLevel:"ANALYSIS"`, `verificationLevel:"75%"`, `publish:"true"` → 200, `fact_level:"analysis"`, `verification_level:75`, `status:"published"`.
+- `POST /api/articles` con `tags:"ia"` (string) → guardado como `["ia"]`.
+- `POST /api/articles` sin `content`/`body` → 400 con mensaje claro.
+- `POST /api/articles/by-slugs` con `[]` → `[]`; con mix válido/inválido → solo válidos en orden.
+- `/guardados` vacío → CTA "Explorar el archivo". Con slug seeded en localStorage → artículo se renderiza con FactBadge + meta.
+- Modo focus → `body.className === "nx-focus-on"` y elementos perimetrales atenuados visualmente.
+
+**Backlog priorizado**:
+- P1: Highlights / anotaciones por párrafo dentro del artículo.
+- P1: Cuenta premium — historial real (sync localStorage ↔ servidor cuando hay sesión).
+- P1: Componente visual "Realidad vs Viralidad" (tabla comparativa hechos vs narrativa).
+- P1: Sistema emocional/narrativo (estado emocional del internet por categoría).
+- P2: Sugerencias post-lectura ("Narrativas similares", "La evolución de esta historia").
+- P2: Multi-idioma (ES/EN/FR/NL) con routing y traducción.
+- P2: Audio articles (TTS) + dark mode premium.

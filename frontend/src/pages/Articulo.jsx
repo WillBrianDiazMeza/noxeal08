@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Tag } from "lucide-react";
+import { ArrowLeft, Tag, Maximize2, Minimize2 } from "lucide-react";
 import { api } from "@/lib/api";
 import SEO from "@/components/SEO";
 import SocialShare from "@/components/SocialShare";
@@ -23,6 +23,7 @@ export default function Articulo() {
   const [article, setArticle] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [focusMode, setFocusMode] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -38,7 +39,27 @@ export default function Articulo() {
     window.scrollTo(0, 0);
   }, [slug]);
 
-  if (loading) return <div className="max-w-3xl mx-auto px-5 py-32 text-center text-[#86868b]">Cargando…</div>;
+  // Sync focus mode with body class + ESC to exit
+  useEffect(() => {
+    document.body.classList.toggle("nx-focus-on", focusMode);
+    const onKey = (e) => { if (e.key === "Escape") setFocusMode(false); };
+    if (focusMode) window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.classList.remove("nx-focus-on");
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [focusMode]);
+
+  if (loading) return (
+    <div className="max-w-3xl mx-auto px-5 py-32" data-testid="article-loading">
+      <div className="nx-skeleton h-4 w-24 mb-6" />
+      <div className="nx-skeleton h-12 w-full mb-3" />
+      <div className="nx-skeleton h-12 w-5/6 mb-10" />
+      <div className="nx-skeleton h-4 w-full mb-3" />
+      <div className="nx-skeleton h-4 w-full mb-3" />
+      <div className="nx-skeleton h-4 w-3/4" />
+    </div>
+  );
   if (error || !article) return (
     <div className="max-w-3xl mx-auto px-5 py-32 text-center" data-testid="article-not-found">
       <h1 className="h-display text-4xl mb-4">Artículo no encontrado</h1>
@@ -62,11 +83,24 @@ export default function Articulo() {
           tags: article.tags,
         }}
       />
-      <article className="pt-16 md:pt-24 pb-8">
+      <article className="pt-16 md:pt-24 pb-8 nx-article-root">
         <div className="max-w-3xl mx-auto px-5 lg:px-0">
-          <Link to="/explorar" className="inline-flex items-center gap-2 text-sm text-[#86868b] hover:text-black mb-10" data-testid="article-back">
-            <ArrowLeft size={14} /> Volver
-          </Link>
+          <div className="flex items-center justify-between mb-10">
+            <Link to="/explorar" className="inline-flex items-center gap-2 text-sm text-[#86868b] hover:text-black" data-testid="article-back">
+              <ArrowLeft size={14} /> Volver
+            </Link>
+            <button
+              type="button"
+              onClick={() => setFocusMode((v) => !v)}
+              className="nx-focus-toggle inline-flex items-center gap-2 text-xs uppercase tracking-widest text-[#86868b] hover:text-black transition-colors"
+              data-testid="article-focus-toggle"
+              aria-pressed={focusMode}
+              title={focusMode ? "Salir del modo lectura (ESC)" : "Modo lectura inmersivo"}
+            >
+              {focusMode ? <Minimize2 size={14} strokeWidth={1.6} /> : <Maximize2 size={14} strokeWidth={1.6} />}
+              <span className="hidden sm:inline">{focusMode ? "Salir" : "Modo lectura"}</span>
+            </button>
+          </div>
           <div className="flex items-center gap-3 mb-5 flex-wrap" data-testid="article-meta-row">
             <span className="label-eyebrow" data-testid="article-category">{article.category}</span>
             {article.fact_level && <FactBadge level={article.fact_level} size="md" />}

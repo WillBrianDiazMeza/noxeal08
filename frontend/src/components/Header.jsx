@@ -1,5 +1,5 @@
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { Search, User, LogOut } from "lucide-react";
+import { Search, User, LogOut, Bookmark } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState } from "react";
 
@@ -44,6 +44,16 @@ export default function Header() {
             <Search size={16} strokeWidth={1.5} />
           </button>
 
+          <NavLink
+            to="/guardados"
+            className={({isActive})=>`nav-link inline-flex items-center gap-2 ${isActive?"active":""}`}
+            data-testid="nav-guardados"
+            aria-label="Tu lista de lectura"
+            title="Tu lista de lectura"
+          >
+            <Bookmark size={16} strokeWidth={1.5} />
+          </NavLink>
+
           {user && user.email ? (
             <div className="flex items-center gap-3">
               {user.role === "admin" && (
@@ -86,6 +96,7 @@ export default function Header() {
             <NavLink to="/categorias" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-categorias">Categorías</NavLink>
             <NavLink to="/explorar" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-explorar">Explorar</NavLink>
             <NavLink to="/buscar" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-buscar">Buscar</NavLink>
+            <NavLink to="/guardados" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-guardados">Tu lista de lectura</NavLink>
             {user && user.email ? (
               <button onClick={()=>{ logout(); setMobileOpen(false); }} className="nav-link text-left" data-testid="m-nav-logout">Salir</button>
             ) : (

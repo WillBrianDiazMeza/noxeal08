@@ -22,7 +22,7 @@ from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depend
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field, EmailStr, ConfigDict
+from pydantic import BaseModel, Field, EmailStr, ConfigDict, field_validator
 
 import ai_service
 import email_service
@@ -350,6 +350,24 @@ async def get_article(slug: str):
     if not article:
         raise HTTPException(status_code=404, detail="Artículo no encontrado")
     return article
+
+
+@api_router.post("/articles/by-slugs")
+async def articles_by_slugs(payload: dict):
+    """Batch lookup used by the 'Saved articles' page so we don't fire N requests.
+    Accepts {"slugs": ["a","b",...]} and returns the matching published articles
+    in input order (missing ones are silently dropped)."""
+    slugs = payload.get("slugs") if isinstance(payload, dict) else None
+    if not isinstance(slugs, list) or not slugs:
+        return []
+    # cap to avoid abuse
+    slugs = [str(s).strip() for s in slugs if s][:200]
+    docs = await db.articles.find(
+        {"slug": {"$in": slugs}, **PUBLIC_STATUS_FILTER}, {"_id": 0}
+    ).to_list(len(slugs))
+    # preserve client order
+    by_slug = {d["slug"]: d for d in docs}
+    return [by_slug[s] for s in slugs if s in by_slug]
 
 
 @api_router.get("/articles/{slug}/related")
@@ -712,13 +730,17 @@ async def make_publish(slug: str, _ok: bool = Depends(require_api_key)):
 
 # ---------- Public Make.com endpoint (matches the exact JSON your Claude prompt produces) ----------
 class MakeArticleIn(BaseModel):
-    """Schema your Make.com Claude scenario produces. Only `title` is required."""
+    """Schema your Make.com Claude scenario produces. Only `title` is required.
+    All other fields tolerate strings, lists, nulls, or weird casing — so the
+    Make automation never fails on subtle payload drift."""
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
     title: str = Field(min_length=3, max_length=300)
     excerpt: Optional[str] = ""
     content: Optional[str] = ""           # full article body as single string with \n\n between paragraphs
-    body: Optional[List[str]] = None      # OR list of paragraphs (either works)
+    body: Optional[List[str]] = Field(default_factory=list)   # OR list of paragraphs (either works)
     category: Optional[str] = "Cultura digital"
-    tags: Optional[List[str]] = []
+    tags: Optional[List[str]] = Field(default_factory=list)
     seoTitle: Optional[str] = None
     seoDescription: Optional[str] = None
     meta_description: Optional[str] = None
@@ -732,6 +754,53 @@ class MakeArticleIn(BaseModel):
     factLevel: Optional[str] = "analysis"  # confirmed | analysis | opinion | investigation | rumor | story
     # 0-100 confidence in the facts of the piece. Defaults heuristically per factLevel.
     verificationLevel: Optional[int] = None
+
+    @field_validator("body", "tags", mode="before")
+    @classmethod
+    def _coerce_list(cls, v):
+        """Make.com sometimes sends a single string where we expect a list,
+        or null. Coerce into a clean list."""
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            # Split on double newlines if it looks like body; otherwise treat as single tag
+            return [v.strip()] if v.strip() else []
+        if isinstance(v, list):
+            return [str(x).strip() for x in v if x is not None and str(x).strip()]
+        return []
+
+    @field_validator("excerpt", "content", "meta_description", "seoTitle",
+                     "seoDescription", "image", "image_prompt", "sourceUrl",
+                     "authorName", "category", "factLevel", mode="before")
+    @classmethod
+    def _coerce_str(cls, v):
+        """Coerce null/numbers to safe string."""
+        if v is None:
+            return ""
+        return str(v)
+
+    @field_validator("verificationLevel", mode="before")
+    @classmethod
+    def _coerce_verif(cls, v):
+        """Tolerate '75', 75.0, '75%', null."""
+        if v is None or v == "":
+            return None
+        try:
+            s = str(v).replace("%", "").strip()
+            return max(0, min(100, int(float(s))))
+        except Exception:
+            return None
+
+    @field_validator("publish", mode="before")
+    @classmethod
+    def _coerce_bool(cls, v):
+        """Tolerate 'true', 'false', '1', '0', 1, 0."""
+        if isinstance(v, bool):
+            return v
+        if v is None:
+            return True
+        s = str(v).strip().lower()
+        return s in ("true", "1", "yes", "y", "publicar", "publish", "publish=true")
 
 
 def _map_category(name: str) -> str:

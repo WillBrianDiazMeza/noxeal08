@@ -11,6 +11,7 @@ export default function SEO({
   type = "website",
   path = "",
   article, // { datePublished, dateModified, author, category, tags }
+  noindex = false,
 }) {
   const fullUrl = `${SITE_URL}${path}`;
   const fullTitle = title ? `${title} · ${SITE_NAME}` : `${SITE_NAME} — Periodismo lento sobre la cultura digital`;
@@ -84,7 +85,7 @@ export default function SEO({
     <Helmet>
       <title>{fullTitle}</title>
       <meta name="description" content={desc} />
-      <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1" />
+      <meta name="robots" content={noindex ? "noindex,nofollow" : "index,follow,max-image-preview:large,max-snippet:-1"} />
       <meta property="og:type" content={type} />
       <meta property="og:title" content={fullTitle} />
       <meta property="og:description" content={desc} />

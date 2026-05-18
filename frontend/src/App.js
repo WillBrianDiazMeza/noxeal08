@@ -20,6 +20,7 @@ const Explorar = lazy(() => import("@/pages/Explorar"));
 const Tendencias = lazy(() => import("@/pages/Tendencias"));
 const Categorias = lazy(() => import("@/pages/Categorias"));
 const Buscar = lazy(() => import("@/pages/Buscar"));
+const Guardados = lazy(() => import("@/pages/Guardados"));
 const Entrar = lazy(() => import("@/pages/Entrar"));
 const Suscribirse = lazy(() => import("@/pages/Suscribirse"));
 const Admin = lazy(() => import("@/pages/Admin"));
@@ -45,6 +46,8 @@ function App() {
             <Route path="/tendencias" element={<Tendencias />} />
             <Route path="/categorias" element={<Categorias />} />
             <Route path="/buscar" element={<Buscar />} />
+            <Route path="/guardados" element={<Guardados />} />
+            <Route path="/saved" element={<Guardados />} />
             <Route path="/articulo/:slug" element={<Articulo />} />
             <Route path="/entrar" element={<Entrar />} />
             <Route path="/suscribirse" element={<Suscribirse />} />
