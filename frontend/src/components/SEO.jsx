@@ -12,6 +12,7 @@ export default function SEO({
   path = "",
   article, // { datePublished, dateModified, author, category, tags }
   noindex = false,
+  breadcrumbs, // [{name, url}] — url is path-relative
 }) {
   const fullUrl = `${SITE_URL}${path}`;
   const fullTitle = title ? `${title} · ${SITE_NAME}` : `${SITE_NAME} — Periodismo lento sobre la cultura digital`;
@@ -98,8 +99,22 @@ export default function SEO({
       <meta name="twitter:description" content={desc} />
       <meta name="twitter:image" content={ogImage} />
       <link rel="canonical" href={fullUrl} />
+      <link rel="alternate" hrefLang="es-ES" href={fullUrl} />
+      <link rel="alternate" hrefLang="x-default" href={fullUrl} />
       <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
       <script type="application/ld+json">{JSON.stringify(organizationLd)}</script>
+      {breadcrumbs && breadcrumbs.length > 0 && (
+        <script type="application/ld+json">{JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "BreadcrumbList",
+          itemListElement: breadcrumbs.map((b, i) => ({
+            "@type": "ListItem",
+            position: i + 1,
+            name: b.name,
+            item: b.url.startsWith("http") ? b.url : `${SITE_URL}${b.url}`,
+          })),
+        })}</script>
+      )}
     </Helmet>
   );
 }

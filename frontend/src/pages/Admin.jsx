@@ -1,9 +1,19 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Sparkles, FileText, Eye, EyeOff, Trash2, RefreshCw, Image as ImageIcon, X, Lightbulb, Edit3, Star, Zap, Webhook, Copy } from "lucide-react";
+import { Sparkles, FileText, Eye, EyeOff, Trash2, RefreshCw, Image as ImageIcon, X, Lightbulb, Edit3, Star, Zap, Webhook, Copy, PenSquare, UserX, MailX } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatApiError } from "@/lib/api";
 import SEO from "@/components/SEO";
+
+const CATEGORIES = ["Tecnología", "Investigación", "Salud y redes", "Cultura digital", "IA"];
+const FACT_LEVELS = [
+  { value: "confirmed",     label: "Confirmado · hechos verificados", defVerif: 92 },
+  { value: "investigation", label: "Investigación periodística",      defVerif: 78 },
+  { value: "analysis",      label: "Análisis editorial",              defVerif: 68 },
+  { value: "story",         label: "Historia / narrativa",            defVerif: 55 },
+  { value: "opinion",       label: "Opinión",                         defVerif: 45 },
+  { value: "rumor",         label: "Rumor en circulación · NO confirmado", defVerif: 20 },
+];
 
 const TABS = [
   { key: "articles", label: "Artículos" },
@@ -80,6 +90,7 @@ function ArticlesPanel({ onMutate }) {
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
+  const [creating, setCreating] = useState(false);
   const [busySlug, setBusySlug] = useState("");
 
   const load = useCallback(async () => {
@@ -91,6 +102,12 @@ function ArticlesPanel({ onMutate }) {
     } finally { setLoading(false); }
   }, [filter]);
   useEffect(() => { load(); }, [load]);
+
+  // Light auto-refresh every 30s so new Make.com articles appear without manual reload
+  useEffect(() => {
+    const t = setInterval(() => { load(); }, 30000);
+    return () => clearInterval(t);
+  }, [load]);
 
   const setStatus = async (slug, action) => {
     setBusySlug(slug);
@@ -144,7 +161,7 @@ function ArticlesPanel({ onMutate }) {
 
   return (
     <div data-testid="articles-panel">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div className="flex gap-2">
           {["all", "draft", "published"].map((f) => (
             <button key={f} onClick={() => setFilter(f)}
@@ -153,6 +170,14 @@ function ArticlesPanel({ onMutate }) {
               {f === "all" ? "Todos" : f === "draft" ? "Borradores" : "Publicados"}
             </button>
           ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => load()} className="text-xs px-3 py-1.5 rounded-full border border-black/10 hover:bg-black/5 inline-flex items-center gap-1" data-testid="articles-refresh">
+            <RefreshCw size={12} /> Actualizar
+          </button>
+          <button onClick={() => setCreating(true)} className="btn-primary inline-flex items-center gap-2" style={{ padding: "10px 18px", fontSize: 13 }} data-testid="create-article-btn">
+            <PenSquare size={14} /> Nuevo artículo
+          </button>
         </div>
       </div>
 
@@ -208,6 +233,7 @@ function ArticlesPanel({ onMutate }) {
       )}
 
       {editing && <EditArticleModal article={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); onMutate(); }} />}
+      {creating && <CreateArticleModal onClose={() => setCreating(false)} onCreated={() => { setCreating(false); load(); onMutate(); }} />}
     </div>
   );
 }
@@ -319,6 +345,11 @@ function EditArticleModal({ article, onClose, onSaved }) {
     tags: (article.tags || []).join(", "),
     image: article.image || "",
     meta_description: article.meta_description || "",
+    fact_level: article.fact_level || "analysis",
+    verification_level: article.verification_level ?? 68,
+    source_url: article.source_url || "",
+    status: article.status || "draft",
+    author: article.author || "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -334,6 +365,11 @@ function EditArticleModal({ article, onClose, onSaved }) {
         tags: form.tags.split(",").map((s) => s.trim()).filter(Boolean),
         image: form.image,
         meta_description: form.meta_description,
+        fact_level: form.fact_level,
+        verification_level: Number(form.verification_level),
+        source_url: form.source_url,
+        status: form.status,
+        author: form.author,
       });
       toast.success("Cambios guardados");
       onSaved();
@@ -344,32 +380,150 @@ function EditArticleModal({ article, onClose, onSaved }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose} data-testid="edit-modal">
-      <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 bg-white px-8 py-5 border-b border-black/10 flex items-center justify-between">
-          <h2 className="h-display text-2xl">Editar artículo</h2>
+    <ArticleFormShell title="Editar artículo" onClose={onClose} testid="edit-modal">
+      <ArticleFormFields form={form} setForm={setForm} prefix="edit" />
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <div className="flex justify-end gap-3 pt-2">
+        <button onClick={onClose} className="btn-secondary" data-testid="edit-cancel">Cancelar</button>
+        <button onClick={save} disabled={saving} className="btn-primary" data-testid="edit-save">{saving ? "Guardando…" : "Guardar"}</button>
+      </div>
+    </ArticleFormShell>
+  );
+}
+
+/* ============== CREATE MODAL (manual, CEO-authored) ============== */
+function CreateArticleModal({ onClose, onCreated }) {
+  const [form, setForm] = useState({
+    title: "",
+    excerpt: "",
+    body: "",
+    category: "Cultura digital",
+    tags: "",
+    image: "",
+    meta_description: "",
+    fact_level: "analysis",
+    verification_level: 68,
+    source_url: "",
+    status: "draft",
+    author: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async (overrideStatus) => {
+    if (!form.title.trim() || form.title.trim().length < 3) {
+      setError("El título debe tener al menos 3 caracteres."); return;
+    }
+    if (!form.body.trim()) {
+      setError("El cuerpo del artículo no puede estar vacío."); return;
+    }
+    setSaving(true); setError("");
+    try {
+      const body = form.body.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
+      const { data } = await api.post("/admin/articles/manual", {
+        title: form.title.trim(),
+        excerpt: form.excerpt.trim(),
+        body,
+        category: form.category,
+        tags: form.tags.split(",").map((s) => s.trim()).filter(Boolean),
+        image: form.image.trim(),
+        meta_description: form.meta_description.trim(),
+        fact_level: form.fact_level,
+        verification_level: Number(form.verification_level),
+        source_url: form.source_url.trim(),
+        author: form.author.trim(),
+        status: overrideStatus || form.status,
+      });
+      toast.success(`✓ Creado: "${data.title}" (${data.status})`);
+      onCreated();
+    } catch (e) {
+      const msg = formatApiError(e.response?.data?.detail) || e.message;
+      setError(msg); toast.error(msg);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <ArticleFormShell title="Nuevo artículo" subtitle="Escribe un artículo manualmente. Aparecerá junto a los generados por Make.com." onClose={onClose} testid="create-modal">
+      <ArticleFormFields form={form} setForm={setForm} prefix="create" />
+      {error && <p className="text-sm text-red-600" data-testid="create-error">{error}</p>}
+      <div className="flex justify-end gap-3 pt-2 flex-wrap">
+        <button onClick={onClose} className="btn-secondary" data-testid="create-cancel">Cancelar</button>
+        <button onClick={() => save("draft")} disabled={saving} className="btn-secondary" data-testid="create-save-draft">
+          {saving ? "Guardando…" : "Guardar como borrador"}
+        </button>
+        <button onClick={() => save("published")} disabled={saving} className="btn-primary" data-testid="create-publish">
+          {saving ? "Publicando…" : "Publicar ya"}
+        </button>
+      </div>
+    </ArticleFormShell>
+  );
+}
+
+/* Shell for both Create + Edit modals */
+function ArticleFormShell({ title, subtitle, onClose, testid, children }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose} data-testid={testid}>
+      <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white px-8 py-5 border-b border-black/10 flex items-center justify-between z-10">
+          <div>
+            <h2 className="h-display text-2xl">{title}</h2>
+            {subtitle && <p className="text-xs text-[#86868b] mt-1">{subtitle}</p>}
+          </div>
           <button onClick={onClose} className="text-[#86868b] hover:text-black" data-testid="modal-close"><X /></button>
         </div>
-        <div className="p-8 space-y-4">
-          <Field label="Título"><input className="input-pill" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} data-testid="edit-title" /></Field>
-          <Field label="Extracto"><textarea rows={2} className="w-full px-5 py-3 rounded-2xl bg-[#f5f5f7] outline-none resize-none" value={form.excerpt} onChange={(e) => setForm({ ...form, excerpt: e.target.value })} data-testid="edit-excerpt" /></Field>
-          <Field label="Categoría">
-            <select className="input-pill" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} data-testid="edit-category">
-              {["Tecnología","Investigación","Salud y redes","Cultura digital","IA"].map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </Field>
-          <Field label="Tags (separados por coma)"><input className="input-pill" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} data-testid="edit-tags" /></Field>
-          <Field label="Imagen (URL o ruta /api/static/...)"><input className="input-pill" value={form.image} onChange={(e) => setForm({ ...form, image: e.target.value })} data-testid="edit-image" /></Field>
-          <Field label="Meta description (SEO)"><textarea rows={2} className="w-full px-5 py-3 rounded-2xl bg-[#f5f5f7] outline-none resize-none" value={form.meta_description} onChange={(e) => setForm({ ...form, meta_description: e.target.value })} data-testid="edit-meta" /></Field>
-          <Field label="Cuerpo (separa párrafos con línea en blanco)"><textarea rows={14} className="w-full px-5 py-3 rounded-2xl bg-[#f5f5f7] outline-none resize-none font-mono text-[13px]" value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} data-testid="edit-body" /></Field>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <div className="flex justify-end gap-3 pt-2">
-            <button onClick={onClose} className="btn-secondary" data-testid="edit-cancel">Cancelar</button>
-            <button onClick={save} disabled={saving} className="btn-primary" data-testid="edit-save">{saving ? "Guardando…" : "Guardar"}</button>
-          </div>
-        </div>
+        <div className="p-8 space-y-4">{children}</div>
       </div>
     </div>
+  );
+}
+
+/* Shared field set */
+function ArticleFormFields({ form, setForm, prefix }) {
+  const upd = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const onFactChange = (v) => {
+    const fl = FACT_LEVELS.find((x) => x.value === v);
+    setForm({ ...form, fact_level: v, verification_level: fl?.defVerif ?? form.verification_level });
+  };
+  return (
+    <>
+      <Field label="Título">
+        <input className="input-pill" value={form.title} onChange={upd("title")} placeholder="Un título claro, descriptivo, SEO-friendly" data-testid={`${prefix}-title`} />
+      </Field>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Field label="Categoría">
+          <select className="input-pill" value={form.category} onChange={upd("category")} data-testid={`${prefix}-category`}>
+            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </Field>
+        <Field label="Estado">
+          <select className="input-pill" value={form.status} onChange={upd("status")} data-testid={`${prefix}-status`}>
+            <option value="draft">Borrador (no público)</option>
+            <option value="published">Publicado (visible)</option>
+          </select>
+        </Field>
+      </div>
+      <Field label="Tipo editorial (Fact Level)">
+        <select className="input-pill" value={form.fact_level} onChange={(e) => onFactChange(e.target.value)} data-testid={`${prefix}-fact-level`}>
+          {FACT_LEVELS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+        </select>
+      </Field>
+      <Field label={`Nivel de verificación: ${form.verification_level}%`}>
+        <input type="range" min="0" max="100" value={form.verification_level} onChange={upd("verification_level")} className="w-full accent-[var(--nx-blue)]" data-testid={`${prefix}-verification`} />
+        <p className="text-xs text-[#86868b] mt-1">0 = rumor sin evidencia · 100 = hechos confirmados por fuentes primarias</p>
+      </Field>
+      <Field label="Extracto / Bajada"><textarea rows={2} className="w-full px-5 py-3 rounded-2xl bg-[#f5f5f7] outline-none resize-none" value={form.excerpt} onChange={upd("excerpt")} placeholder="Frase de gancho (max 280 chars). Se usa también en redes sociales." data-testid={`${prefix}-excerpt`} /></Field>
+      <Field label="Tags (separados por coma)"><input className="input-pill" value={form.tags} onChange={upd("tags")} placeholder="ia, gpt-5, controversia" data-testid={`${prefix}-tags`} /></Field>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Field label="Autor (opcional)"><input className="input-pill" value={form.author} onChange={upd("author")} placeholder="Redacción Noxeal" data-testid={`${prefix}-author`} /></Field>
+        <Field label="Fuente original (URL, opcional)"><input className="input-pill" value={form.source_url} onChange={upd("source_url")} placeholder="https://…" data-testid={`${prefix}-source`} /></Field>
+      </div>
+      <Field label="Imagen (URL o ruta /api/static/...)"><input className="input-pill" value={form.image} onChange={upd("image")} placeholder="Opcional · diseño tipográfico funciona sin imagen" data-testid={`${prefix}-image`} /></Field>
+      <Field label="Meta description (SEO)"><textarea rows={2} className="w-full px-5 py-3 rounded-2xl bg-[#f5f5f7] outline-none resize-none" value={form.meta_description} onChange={upd("meta_description")} placeholder="150-160 caracteres. Lo que ve Google en los resultados." data-testid={`${prefix}-meta`} /></Field>
+      <Field label="Cuerpo (separa párrafos con línea en blanco)">
+        <textarea rows={16} className="w-full px-5 py-3 rounded-2xl bg-[#f5f5f7] outline-none resize-none font-mono text-[13px]" value={form.body} onChange={upd("body")} placeholder={"Primer párrafo de gancho.\n\nSegundo párrafo con contexto.\n\nTercer párrafo con análisis…"} data-testid={`${prefix}-body`} />
+        <p className="text-xs text-[#86868b] mt-1">Tip: párrafos cortos, frases claras. Editorial Noxeal = pocos adjetivos, fuentes citadas, sin clickbait.</p>
+      </Field>
+    </>
   );
 }
 
@@ -392,10 +546,21 @@ function CommentsPanel({ onMutate }) {
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const t = setInterval(() => { load(); }, 30000);
+    return () => clearInterval(t);
+  }, [load]);
 
   const remove = async (id) => {
     if (!window.confirm("¿Eliminar comentario?")) return;
-    await api.delete(`/comments/${id}`); await load(); onMutate();
+    try {
+      await api.delete(`/comments/${id}`);
+      setComments((arr) => arr.filter((c) => c.id !== id));
+      onMutate();
+      toast.success("Comentario eliminado");
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || "No se pudo eliminar");
+    }
   };
 
   if (loading) return <p className="text-[#86868b]">Cargando…</p>;
@@ -415,8 +580,8 @@ function CommentsPanel({ onMutate }) {
               <span className="text-xs text-[#86868b]">en /{c.article_slug}</span>
             </div>
             <p className="text-[14px] text-[#1a1a1a] mb-2 whitespace-pre-wrap">{c.body}</p>
-            <button onClick={() => remove(c.id)} className="text-xs text-red-600 hover:underline inline-flex items-center gap-1" data-testid={`admin-delete-comment-${c.id}`}>
-              <Trash2 size={12} /> Moderar
+            <button onClick={() => remove(c.id)} className="text-xs px-3 py-1.5 rounded-full border border-red-200 text-red-600 hover:bg-red-50 inline-flex items-center gap-1" data-testid={`admin-delete-comment-${c.id}`}>
+              <Trash2 size={12} /> Eliminar
             </button>
           </div>
         </li>
@@ -429,9 +594,23 @@ function CommentsPanel({ onMutate }) {
 function SubscribersPanel() {
   const [subs, setSubs] = useState([]);
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
+
+  const load = useCallback(() => {
+    setLoading(true);
     api.get("/newsletter/list").then(({ data }) => setSubs(data || [])).finally(() => setLoading(false));
   }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const remove = async (email) => {
+    if (!window.confirm(`¿Eliminar a ${email} de la newsletter?`)) return;
+    try {
+      await api.delete(`/admin/newsletter/${encodeURIComponent(email)}`);
+      setSubs((s) => s.filter((x) => x.email !== email));
+      toast.success("Suscriptor eliminado");
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || "No se pudo eliminar");
+    }
+  };
 
   if (loading) return <p className="text-[#86868b]">Cargando…</p>;
   if (!subs.length) return <p className="text-[#86868b] text-center py-12">Sin suscriptores aún.</p>;
@@ -441,9 +620,12 @@ function SubscribersPanel() {
       <div className="mb-4 text-sm text-[#86868b]">{subs.length} suscriptor{subs.length !== 1 ? "es" : ""}</div>
       <ul className="space-y-2 bg-white rounded-2xl border border-black/10 divide-y divide-black/5">
         {subs.map((s) => (
-          <li key={s.email} className="px-5 py-3 flex justify-between items-center text-sm">
-            <span className="font-mono">{s.email}</span>
+          <li key={s.email} className="px-5 py-3 flex justify-between items-center text-sm gap-3" data-testid={`subscriber-${s.email}`}>
+            <span className="font-mono truncate flex-1">{s.email}</span>
             <span className="text-xs text-[#86868b]">{new Date(s.subscribed_at).toLocaleDateString("es-ES")}</span>
+            <button onClick={() => remove(s.email)} className="text-xs px-3 py-1.5 rounded-full border border-red-200 text-red-600 hover:bg-red-50 inline-flex items-center gap-1" data-testid={`delete-subscriber-${s.email}`}>
+              <MailX size={12} /> Eliminar
+            </button>
           </li>
         ))}
       </ul>
@@ -468,7 +650,19 @@ function UsersPanel() {
     try {
       await api.put(`/admin/users/${id}/role`, { role });
       await load();
-    } catch (e) { alert(formatApiError(e.response?.data?.detail) || "Error"); }
+      toast.success("Rol actualizado");
+    } catch (e) { toast.error(formatApiError(e.response?.data?.detail) || "Error"); }
+  };
+
+  const remove = async (u) => {
+    if (!window.confirm(`¿Eliminar permanentemente a "${u.name}" (${u.email})? Sus comentarios quedarán como "Usuario eliminado".`)) return;
+    try {
+      await api.delete(`/admin/users/${u.id}`);
+      setUsers((arr) => arr.filter((x) => x.id !== u.id));
+      toast.success("Usuario eliminado");
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail) || "No se pudo eliminar");
+    }
   };
 
   if (loading) return <p className="text-[#86868b]">Cargando…</p>;
@@ -478,10 +672,10 @@ function UsersPanel() {
       <div className="mb-4 text-sm text-[#86868b]">{users.length} usuario{users.length !== 1 ? "s" : ""}</div>
       <ul className="space-y-2 bg-white rounded-2xl border border-black/10 divide-y divide-black/5">
         {users.map((u) => (
-          <li key={u.id} className="px-5 py-4 flex flex-wrap gap-3 justify-between items-center">
-            <div>
-              <div className="font-medium">{u.name}</div>
-              <div className="text-xs text-[#86868b]">{u.email}</div>
+          <li key={u.id} className="px-5 py-4 flex flex-wrap gap-3 justify-between items-center" data-testid={`user-${u.id}`}>
+            <div className="min-w-0 flex-1">
+              <div className="font-medium truncate">{u.name}</div>
+              <div className="text-xs text-[#86868b] truncate">{u.email}</div>
             </div>
             <select
               value={u.role}
@@ -493,6 +687,9 @@ function UsersPanel() {
               <option value="author">Autor IA</option>
               <option value="admin">Admin / CEO</option>
             </select>
+            <button onClick={() => remove(u)} className="text-xs px-3 py-1.5 rounded-full border border-red-200 text-red-600 hover:bg-red-50 inline-flex items-center gap-1" data-testid={`delete-user-${u.id}`}>
+              <UserX size={12} /> Eliminar
+            </button>
           </li>
         ))}
       </ul>

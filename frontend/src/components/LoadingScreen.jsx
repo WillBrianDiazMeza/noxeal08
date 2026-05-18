@@ -17,7 +17,7 @@ export default function LoadingScreen() {
   return (
     <div className="nx-loading-screen" data-testid="loading-screen">
       <div className="nx-loading-inner">
-        <img src="/noxeal-mark.png" alt="" width={48} height={48} className="nx-loading-mark" aria-hidden="true" />
+        <div className="nx-loading-pulse-dot" aria-hidden="true" />
         <div className="nx-logo nx-loading-wordmark">NOXEAL</div>
         <div className="nx-loading-phrase" aria-live="polite">{PHRASES[idx]}</div>
       </div>

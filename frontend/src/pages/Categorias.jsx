@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useParams, Navigate } from "react-router-dom";
 import { api } from "@/lib/api";
+import SEO from "@/components/SEO";
 
 export default function Categorias() {
+  const { slug } = useParams();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -12,8 +14,19 @@ export default function Categorias() {
       .finally(() => setLoading(false));
   }, []);
 
+  // /categoria/:slug → SEO-friendly URL that redirects to filtered Explorar
+  if (slug) {
+    return <Navigate to={`/explorar?cat=${slug}`} replace />;
+  }
+
   return (
     <main data-testid="categorias-page">
+      <SEO
+        title="Categorías"
+        description="Tecnología, Investigación, Salud y redes, Cultura digital, IA. Explora Noxeal por tema editorial."
+        path="/categorias"
+        breadcrumbs={[{ name: "Inicio", url: "/" }, { name: "Categorías", url: "/categorias" }]}
+      />
       <section className="pt-24 pb-12">
         <div className="max-w-7xl mx-auto px-5 lg:px-8">
           <div className="label-eyebrow mb-4">Categorías</div>

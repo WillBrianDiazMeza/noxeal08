@@ -150,6 +150,14 @@
   animation: nx-loading-pulse 1.8s ease-in-out infinite;
   filter: drop-shadow(0 0 22px rgba(59, 130, 246, 0.25));
 }
+.nx-loading-pulse-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--nx-blue);
+  box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.12), 0 0 24px rgba(59, 130, 246, 0.45);
+  animation: nx-loading-pulse 1.6s ease-in-out infinite;
+}
 .nx-loading-wordmark {
   font-size: 22px;
   letter-spacing: 0.32em;

@@ -82,6 +82,11 @@ export default function Articulo() {
           category: article.category,
           tags: article.tags,
         }}
+        breadcrumbs={[
+          { name: "Inicio", url: "/" },
+          ...(article.category_slug ? [{ name: article.category, url: `/categoria/${article.category_slug}` }] : []),
+          { name: article.title, url: `/articulo/${article.slug}` },
+        ]}
       />
       <article className="pt-16 md:pt-24 pb-8 nx-article-root">
         <div className="max-w-3xl mx-auto px-5 lg:px-0">
@@ -125,6 +130,12 @@ export default function Articulo() {
             )}
             <span>·</span>
             <span data-testid="article-date">{formatDate(article.published_at)}</span>
+            {article.updated_at && article.updated_at !== article.published_at && (
+              <>
+                <span>·</span>
+                <span data-testid="article-updated" className="italic">Actualizado {formatDate(article.updated_at)}</span>
+              </>
+            )}
             {article.read_time && (<><span>·</span><span>{article.read_time} min de lectura</span></>)}
           </div>
 

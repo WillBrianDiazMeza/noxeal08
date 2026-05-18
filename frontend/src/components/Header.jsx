@@ -11,24 +11,17 @@ export default function Header() {
   return (
     <header className="nx-header" data-testid="site-header">
       <div className="max-w-7xl mx-auto px-5 lg:px-8 h-20 flex items-center justify-between gap-6">
-        {/* Logo (icon + wordmark) */}
-        <Link to="/" className="flex items-center gap-2.5 group" data-testid="site-logo" aria-label="Noxeal — inicio">
-          <img
-            src="/noxeal-mark.png"
-            alt=""
-            aria-hidden="true"
-            width={26}
-            height={26}
-            className="transition-transform duration-300 group-hover:scale-105"
-            style={{ filter: "drop-shadow(0 0 0 transparent)" }}
-          />
+        {/* Logo (editorial wordmark — sin cuadrado decorativo) */}
+        <Link to="/" className="flex items-center group" data-testid="site-logo" aria-label="Noxeal — inicio">
           <span className="nx-logo">NOXEAL</span>
+          <span className="ml-2 w-1.5 h-1.5 rounded-full bg-[var(--nx-blue)] transition-transform duration-300 group-hover:scale-125" aria-hidden="true" />
         </Link>
 
         {/* Primary nav (simplified Noxeal IA: Inicio · Tendencias · Historias · Análisis · Explorar) */}
         <nav className="hidden md:flex items-center gap-7" data-testid="primary-nav">
           <NavLink end to="/" className={({isActive})=>`nav-link ${isActive?"active":""}`} data-testid="nav-inicio">Inicio</NavLink>
           <NavLink to="/tendencias" className={({isActive})=>`nav-link ${isActive?"active":""}`} data-testid="nav-tendencias">Tendencias</NavLink>
+          <NavLink to="/temas" className={({isActive})=>`nav-link ${isActive?"active":""}`} data-testid="nav-temas">Temas</NavLink>
           <NavLink to="/categorias" className={({isActive})=>`nav-link ${isActive?"active":""}`} data-testid="nav-categorias">Categorías</NavLink>
           <NavLink to="/explorar" className={({isActive})=>`nav-link ${isActive?"active":""}`} data-testid="nav-explorar">Explorar</NavLink>
         </nav>
@@ -93,6 +86,7 @@ export default function Header() {
           <div className="px-5 py-4 flex flex-col gap-3">
             <NavLink end to="/" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-inicio">Inicio</NavLink>
             <NavLink to="/tendencias" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-tendencias">Tendencias</NavLink>
+            <NavLink to="/temas" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-temas">Temas</NavLink>
             <NavLink to="/categorias" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-categorias">Categorías</NavLink>
             <NavLink to="/explorar" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-explorar">Explorar</NavLink>
             <NavLink to="/buscar" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-buscar">Buscar</NavLink>

@@ -1211,10 +1211,42 @@ class ArticleUpdate(BaseModel):
     image: Optional[str] = None
     image_prompt: Optional[str] = None
     meta_description: Optional[str] = None
+    source_url: Optional[str] = None
+    fact_level: Optional[str] = None
+    verification_level: Optional[int] = None
+    status: Optional[str] = None
+    author: Optional[str] = None
     hero: Optional[bool] = None
     side: Optional[bool] = None
     viral: Optional[bool] = None
     trending: Optional[bool] = None
+
+
+class ArticleCreateManual(BaseModel):
+    """Admin/CEO manually creates a full article. Same fields as Make.com but with admin auth."""
+    title: str = Field(min_length=3, max_length=300)
+    excerpt: Optional[str] = ""
+    body: List[str] = Field(default_factory=list)        # paragraphs
+    category: str = "Cultura digital"
+    tags: List[str] = Field(default_factory=list)
+    meta_description: Optional[str] = ""
+    image: Optional[str] = ""
+    source_url: Optional[str] = ""
+    author: Optional[str] = ""                            # defaults to admin name
+    fact_level: str = "analysis"
+    verification_level: Optional[int] = None
+    status: str = "draft"                                 # "draft" | "published"
+
+    @field_validator("body", "tags", mode="before")
+    @classmethod
+    def _coerce_list(cls, v):
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            return [v.strip()] if v.strip() else []
+        if isinstance(v, list):
+            return [str(x).strip() for x in v if x is not None and str(x).strip()]
+        return []
 
 
 CATEGORY_TO_SLUG = {
@@ -1287,6 +1319,87 @@ async def admin_generate_article(data: GenerateArticleIn, admin: dict = Depends(
         "hero": False, "side": False, "viral": False, "trending": False,
     }
     await db.articles.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+# ---------- Admin: manual article creation (CEO writes their own piece) ----------
+@api_router.post("/admin/articles/manual")
+async def admin_create_manual(data: ArticleCreateManual, admin: dict = Depends(require_admin)):
+    """CEO/admin writes a full article manually, without going through Make.com or AI."""
+    paragraphs = [_sanitize(p.strip()) for p in data.body if p and p.strip()]
+    if not paragraphs:
+        raise HTTPException(status_code=400, detail="El cuerpo del artículo está vacío.")
+
+    total_len = sum(len(p) for p in paragraphs)
+    if total_len > 50_000:
+        raise HTTPException(status_code=413, detail="Contenido demasiado largo (>50k chars).")
+
+    category = data.category if data.category in CATEGORY_TO_SLUG else "Cultura digital"
+
+    base_slug = ai_service.slugify(data.title)
+    slug = base_slug
+    n = 1
+    while await db.articles.find_one({"slug": slug}):
+        n += 1
+        slug = f"{base_slug}-{n}"
+
+    excerpt = _sanitize((data.excerpt or "").strip())[:280]
+    if not excerpt and paragraphs:
+        excerpt = paragraphs[0][:280]
+
+    valid_levels = {"confirmed", "analysis", "opinion", "investigation", "rumor", "story"}
+    fact_level = (data.fact_level or "analysis").lower().strip()
+    if fact_level not in valid_levels:
+        fact_level = "analysis"
+
+    default_verif = {"confirmed": 92, "investigation": 78, "analysis": 68,
+                     "story": 55, "opinion": 45, "rumor": 20}
+    verification_level = data.verification_level
+    if verification_level is None:
+        verification_level = default_verif[fact_level]
+    verification_level = max(0, min(100, int(verification_level)))
+
+    status = "published" if data.status == "published" else "draft"
+
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "slug": slug,
+        "status": status,
+        "title": _sanitize(data.title.strip())[:200],
+        "excerpt": excerpt,
+        "body": paragraphs,
+        "category": category,
+        "category_slug": CATEGORY_TO_SLUG[category],
+        "tags": [t.lower().strip().replace(" ", "-") for t in data.tags if t][:10],
+        "meta_description": _sanitize((data.meta_description or excerpt).strip())[:200],
+        "image_prompt": data.title,
+        "image": data.image or "",
+        "source_url": (data.source_url or "").strip()[:500],
+        "author": (data.author or admin.get("name") or "Redacción Noxeal").strip()[:80],
+        "created_by": admin["id"],
+        "created_at": now,
+        "updated_at": now,
+        "published_at": now,
+        "read_time": max(3, total_len // 1000),
+        "hero": False, "side": False, "viral": False, "trending": False,
+        "views": 0, "likes": 0, "comments_count": 0,
+        "viral_score": 0, "controversy_score": 0,
+        "fact_level": fact_level,
+        "verification_level": verification_level,
+    }
+    await db.articles.insert_one(doc)
+    if status == "published":
+        email_service.notify_admin_published(
+            title=doc["title"], slug=slug, author=doc["author"],
+            excerpt=excerpt, body_preview=paragraphs[0] if paragraphs else "",
+            category=category, source_url=doc.get("source_url", ""),
+        )
+        try:
+            await _recompute_homepage_flags()
+        except Exception as e:
+            logging.warning(f"homepage recompute after manual publish failed: {e}")
     doc.pop("_id", None)
     return doc
 
@@ -1400,6 +1513,37 @@ async def admin_update_role(user_id: str, data: RoleUpdate, admin: dict = Depend
     res = await db.users.update_one({"id": user_id}, {"$set": {"role": data.role}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {"ok": True}
+
+
+@api_router.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, admin: dict = Depends(require_admin)):
+    """Remove a user account. Comments by this user are kept but author shows as 'Usuario eliminado'."""
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=400, detail="No puedes eliminar tu propia cuenta")
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "role": 1, "email": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    # Don't allow deleting the last admin
+    if user.get("role") == "admin":
+        remaining = await db.users.count_documents({"role": "admin", "id": {"$ne": user_id}})
+        if remaining == 0:
+            raise HTTPException(status_code=400, detail="No puedes eliminar al último administrador")
+    await db.users.delete_one({"id": user_id})
+    # Anonymize their comments rather than delete (preserve thread integrity)
+    await db.comments.update_many(
+        {"user_id": user_id},
+        {"$set": {"user_name": "Usuario eliminado", "user_id": "deleted"}},
+    )
+    return {"ok": True, "deleted_email": user.get("email", "")}
+
+
+@api_router.delete("/admin/newsletter/{email}")
+async def admin_delete_subscriber(email: str, _admin: dict = Depends(require_admin)):
+    """Unsubscribe a newsletter address from admin panel."""
+    res = await db.newsletter.delete_one({"email": email.lower().strip()})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Suscriptor no encontrado")
     return {"ok": True}
 
 
@@ -1711,6 +1855,181 @@ except OSError:
 # ---------- Sitemap & robots (SEO) — under /api so kubernetes ingress forwards them ----------
 from fastapi.responses import Response as PlainResponse
 
+
+def _sitemap_wrap(urls: list[str]) -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+        'xmlns:xhtml="http://www.w3.org/1999/xhtml">'
+        + "".join(urls)
+        + "</urlset>"
+    )
+
+
+@app.get("/api/sitemap-index.xml")
+@app.get("/sitemap-index.xml")
+@app.get("/api/sitemap_index.xml")
+@app.get("/sitemap_index.xml")
+async def sitemap_index():
+    """Master index pointing at the granular sitemaps. Submit this URL to GSC."""
+    base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    parts = [
+        ("/sitemap.xml", today),
+        ("/sitemap-articles.xml", today),
+        ("/sitemap-categories.xml", today),
+        ("/sitemap-tags.xml", today),
+        ("/sitemap-topics.xml", today),
+    ]
+    items = "".join(
+        f"<sitemap><loc>{base}{p}</loc><lastmod>{m}</lastmod></sitemap>"
+        for p, m in parts
+    )
+    xml = f'<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{items}</sitemapindex>'
+    return PlainResponse(content=xml, media_type="application/xml")
+
+
+@app.get("/api/sitemap-articles.xml")
+@app.get("/sitemap-articles.xml")
+async def sitemap_articles():
+    base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
+    urls: list[str] = []
+    if db is not None:
+        try:
+            articles = await db.articles.find(
+                PUBLIC_STATUS_FILTER,
+                {"_id": 0, "slug": 1, "published_at": 1, "updated_at": 1},
+            ).sort("published_at", -1).to_list(10000)
+            for a in articles:
+                loc = f"{base}/articulo/{a['slug']}"
+                lastmod = (a.get("updated_at") or a.get("published_at", ""))[:10]
+                urls.append(
+                    f"<url><loc>{loc}</loc>"
+                    + (f"<lastmod>{lastmod}</lastmod>" if lastmod else "")
+                    + "<changefreq>weekly</changefreq><priority>0.8</priority>"
+                    + f'<xhtml:link rel="alternate" hreflang="es-ES" href="{loc}"/>'
+                    + "</url>"
+                )
+        except Exception as e:
+            logging.warning(f"sitemap-articles failed: {e}")
+    return PlainResponse(content=_sitemap_wrap(urls), media_type="application/xml")
+
+
+@app.get("/api/sitemap-categories.xml")
+@app.get("/sitemap-categories.xml")
+async def sitemap_categories():
+    base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
+    urls: list[str] = []
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    for slug in CATEGORY_TO_SLUG.values():
+        for prefix in ("/categoria", "/categorias"):
+            loc = f"{base}{prefix}/{slug}"
+            urls.append(
+                f"<url><loc>{loc}</loc><lastmod>{today}</lastmod>"
+                "<changefreq>daily</changefreq><priority>0.7</priority></url>"
+            )
+    return PlainResponse(content=_sitemap_wrap(urls), media_type="application/xml")
+
+
+@app.get("/api/sitemap-tags.xml")
+@app.get("/sitemap-tags.xml")
+async def sitemap_tags():
+    base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
+    urls: list[str] = []
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if db is not None:
+        try:
+            pipeline = [
+                {"$match": PUBLIC_STATUS_FILTER},
+                {"$unwind": "$tags"},
+                {"$group": {"_id": "$tags", "count": {"$sum": 1}}},
+                {"$match": {"count": {"$gte": 1}}},
+            ]
+            tags = await db.articles.aggregate(pipeline).to_list(2000)
+            for t in tags:
+                tag_slug = (t["_id"] or "").lower().strip().replace(" ", "-")
+                if not tag_slug:
+                    continue
+                loc = f"{base}/tendencias/{tag_slug}"
+                urls.append(
+                    f"<url><loc>{loc}</loc><lastmod>{today}</lastmod>"
+                    "<changefreq>weekly</changefreq><priority>0.6</priority></url>"
+                )
+        except Exception as e:
+            logging.warning(f"sitemap-tags failed: {e}")
+    return PlainResponse(content=_sitemap_wrap(urls), media_type="application/xml")
+
+
+# Curated pillar topics (long-tail SEO entry points)
+PILLAR_TOPICS = [
+    {"slug": "jeffrey-epstein", "name": "Jeffrey Epstein",
+     "tags": ["epstein", "filtraciones", "documentos", "investigacion"],
+     "description": "Todo lo que se sabe (y lo que no) sobre los documentos, las teorías virales y las pruebas verificadas en torno a Jeffrey Epstein."},
+    {"slug": "inteligencia-artificial", "name": "Inteligencia Artificial",
+     "tags": ["ia", "gpt-5", "claude", "consciencia", "tecnologia"],
+     "description": "Análisis lentos sobre la evolución de los modelos, sus límites reales y los mitos virales que circulan en redes."},
+    {"slug": "deepfakes", "name": "Deepfakes",
+     "tags": ["deepfakes", "ia", "politica", "verdad"],
+     "description": "Cómo los vídeos sintéticos están redefiniendo campañas, escándalos y el concepto mismo de evidencia."},
+    {"slug": "cbdc", "name": "CBDC y privacidad",
+     "tags": ["cbdc", "privacidad", "banca", "vigilancia"],
+     "description": "Las monedas digitales de banco central avanzan en silencio. Esto es lo que cambian para tu dinero y tus datos."},
+    {"slug": "salud-mental-redes", "name": "Salud mental y redes",
+     "tags": ["salud-mental", "redes-sociales", "tiktok", "algoritmos"],
+     "description": "El impacto de los feeds en el ánimo, la atención y la ansiedad. Lo que dicen los estudios serios versus lo que viraliza."},
+]
+
+
+@app.get("/api/sitemap-topics.xml")
+@app.get("/sitemap-topics.xml")
+async def sitemap_topics():
+    base = os.environ.get("FRONTEND_URL", "https://noxeal.com").rstrip("/")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    urls = [
+        f"<url><loc>{base}/temas/{t['slug']}</loc><lastmod>{today}</lastmod>"
+        "<changefreq>weekly</changefreq><priority>0.85</priority></url>"
+        for t in PILLAR_TOPICS
+    ]
+    return PlainResponse(content=_sitemap_wrap(urls), media_type="application/xml")
+
+
+@app.get("/api/topics")
+@app.get("/topics")
+async def list_topics():
+    """Public: returns the pillar topics with article counts (for /temas index)."""
+    out = []
+    for t in PILLAR_TOPICS:
+        count = 0
+        if db is not None:
+            try:
+                count = await db.articles.count_documents(
+                    {**PUBLIC_STATUS_FILTER, "tags": {"$in": t["tags"]}}
+                )
+            except Exception:
+                pass
+        out.append({**t, "article_count": count})
+    return out
+
+
+@app.get("/api/topics/{slug}")
+@app.get("/topics/{slug}")
+async def get_topic(slug: str):
+    """Public: pillar page data. Returns articles + meta + FAQ for a given long-tail topic."""
+    topic = next((t for t in PILLAR_TOPICS if t["slug"] == slug), None)
+    if not topic:
+        raise HTTPException(status_code=404, detail="Tema no encontrado")
+    articles = []
+    if db is not None:
+        try:
+            articles = await db.articles.find(
+                {**PUBLIC_STATUS_FILTER, "tags": {"$in": topic["tags"]}},
+                {"_id": 0},
+            ).sort("published_at", -1).limit(50).to_list(50)
+        except Exception:
+            pass
+    return {**topic, "articles": articles, "article_count": len(articles)}
+
+
 @app.get("/api/sitemap.xml")
 @app.get("/sitemap.xml")
 async def sitemap():
@@ -1728,6 +2047,9 @@ async def sitemap():
         ("/cookies", "monthly", "0.3"),
         ("/disclaimer", "monthly", "0.3"),
         ("/contact", "monthly", "0.4"),
+        ("/transparencia-ia", "monthly", "0.6"),
+        ("/correcciones", "monthly", "0.4"),
+        ("/editorial", "monthly", "0.5"),
     ]
     urls = []
     for p, freq, prio in static_paths:
@@ -1748,13 +2070,7 @@ async def sitemap():
                 )
         except Exception as e:
             logging.warning(f"sitemap article enumeration failed: {e}")
-    xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
-        + "".join(urls)
-        + "</urlset>"
-    )
-    return PlainResponse(content=xml, media_type="application/xml")
+    return PlainResponse(content=_sitemap_wrap(urls), media_type="application/xml")
 
 
 @app.get("/api/robots.txt")
@@ -1766,9 +2082,15 @@ async def robots():
         "Allow: /\n"
         "Disallow: /admin\n"
         "Disallow: /entrar\n"
-        "Disallow: /api/admin/\n\n"
+        "Disallow: /guardados\n"
+        "Disallow: /api/admin/\n"
+        "Disallow: /api/auth/\n\n"
+        f"Sitemap: {base}/sitemap-index.xml\n"
         f"Sitemap: {base}/sitemap.xml\n"
-        f"Sitemap: {base}/api/sitemap.xml\n"
+        f"Sitemap: {base}/sitemap-articles.xml\n"
+        f"Sitemap: {base}/sitemap-categories.xml\n"
+        f"Sitemap: {base}/sitemap-tags.xml\n"
+        f"Sitemap: {base}/sitemap-topics.xml\n"
     )
     return PlainResponse(content=txt, media_type="text/plain")
 

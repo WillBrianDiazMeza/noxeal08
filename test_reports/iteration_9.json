@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 9 full-stack test of Noxeal — admin manual article CRUD, sitemap-index + 4 sub-sitemaps, /api/topics pillar pages, admin delete user/subscriber/comment, ArticleUpdate new fields, header wordmark refactor, /temas + /temas/:slug pillar SEO pages with breadcrumb + FAQ + JSON-LD, /categoria/:slug redirect, article meta robots + hreflang es-ES + BreadcrumbList JSON-LD. Backend: 18/18 iter9 pytest pass (100%). Frontend: 100% — /temas shows exactly 5 topic cards with correct article_count (Jeffrey Epstein 1, IA 9, Deepfakes 11, CBDC 4, Salud-redes 22); /temas/jeffrey-epstein has h1 'Jeffrey Epstein', breadcrumb 'Inicio · Temas · Jeffrey Epstein', tema-articles block, 3 FAQs (tema-faq-0/1/2). Header has NOXEAL wordmark + blue dot, ZERO <img src='*noxeal-mark*'> on home. Admin login as noxael18@gmail.com / Noxeal2026! works → /admin. Modal 'Nuevo artículo' opens with 15/15 expected testids (create-title, create-excerpt, create-category, create-status, create-fact-level, create-verification, create-tags, create-author, create-source, create-image, create-meta, create-body, create-save-draft, create-publish, create-cancel). Publish flow: toast '✓ Creado: \"TEST UI iter9 articulo manual\" (published)' appears + article appears in admin list without manual refresh. Edit modal pre-fills title, fact_level=analysis, verification_level=68. Subscribers tab: 8 delete-subscriber-* buttons. Users tab: 29 delete-user-* buttons; clicking self-delete returns toast 'No puedes eliminar tu propia cuenta' (HTTP 400) ✅. Comments tab: 6 admin-delete-comment-* buttons. Article page /articulo/libro-negro-digital-epstein: meta robots='index,follow,max-image-preview:large,max-snippet:-1', hreflang=['es-ES','x-default'], JSON-LD types=['NewsArticle','NewsMediaOrganization','BreadcrumbList']. /guardados regression OK (h1 'Lista de lectura'). /categoria/tecnologia → 302 redirect to /explorar?cat=tecnologia. POST /api/admin/articles/manual: full body returns doc with fact_level (normalized lowercase 'analysis'), verification_level=75, status, category_slug; body-as-string is coerced to list; unauth=401/403; missing body=422. DELETE /api/admin/users/{self}=400. DELETE /api/admin/newsletter/{email} works (200 then 404). PUT /api/admin/articles/{slug} accepts new fields fact_level, verification_level, status, source_url, author and persists them. Make.com regression: POST /api/articles with tags:null, factLevel:'ANALYSIS', verificationLevel:'75%', publish:'true' returns 200 (Pydantic validators OK). /api/articles/by-slugs regression OK.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/articles/manual", "issue": "fact_level value is normalized to lowercase on storage ('ANALYSIS' → 'analysis'), but the create modal dropdown likely sends uppercase. Inconsistent casing across read/write may cause UI mismatch on edit (the modal shows lowercase). Verify Admin.jsx select options match the stored casing."},
+      {"endpoint": "POST /api/admin/articles/manual", "issue": "Returns 422 (Pydantic) instead of 400 when body is missing — review request expected 400 with clear message. Cosmetic; both signal validation error."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Article page", "issues": ["Fecha de actualización label not visible because updated_at == published_at for current articles. Confirmed conditional rendering works; will appear only on edited articles. Not a bug."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration9.py",
+    "/app/test_reports/pytest/iter9_results.xml"
+  ],
+  "action_items": [
+    "[Low] Align fact_level casing between create-fact-level dropdown options and DB-stored value (currently lowercase). Either store as uppercase or convert dropdown options to lowercase to keep edit modal value matching <option>.",
+    "[Low] Decide whether missing-body on admin manual create should return 400 with explicit message (review request asked for 400 with mensaje claro). Currently FastAPI Pydantic returns 422 — works but UX could be better with a custom validator returning HTTPException(400)."
+  ],
+  "critical_code_review_comments": [
+    "All 5 pillar topics in PILLAR_TOPICS have correct article_count via tag matching; the values (1, 9, 11, 4, 22) line up with current dataset.",
+    "Sitemap-index references sub-sitemaps at root domain (e.g., /sitemap-articles.xml), but the working endpoints are at /api/sitemap-articles.xml. Verify that the Kubernetes/static rewrite handles both paths, otherwise Google bots fetching the root-level sub-sitemap URLs from the index will get the SPA HTML. Recommend either: (a) emit /api/sitemap-*.xml URLs in index, or (b) ensure the frontend rewrites these specific paths to the backend.",
+    "Edit modal correctly pre-fills fact_level and verification_level — confirmed visually with 'analysis' and 68.",
+    "Self-delete guard works at backend (400) AND UI shows error toast — defense in depth ✅.",
+    "PILLAR_TOPICS list_topics + get_topic registered with @app.get directly (outside api_router) — works but inconsistent with rest of routes. Same pattern noted in iter5 for POST /api/articles."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration9.py (NEW — 18 tests, all pass)",
+    "/app/test_reports/pytest/iter9_results.xml (NEW)",
+    "/app/test_reports/iteration_9.json (this report)"
+  ],
+  "success_rate": {"backend": "100% (18/18 iter9)", "frontend": "100% — all 15 modal testids, 5 topic cards, 3 FAQs, all delete buttons, edit pre-fill, self-delete guard, JSON-LD + hreflang + meta robots + breadcrumb verified"},
+  "test_credentials": "noxael18@gmail.com / Noxeal2026! — verified working via UI /entrar and pytest /api/auth/login. Admin@noxeal.com also works as fallback (used by iter5 tests).",
+  "seed_data_creation": "Created via tests: 1 published manual article 'TEST UI iter9 articulo manual', 2 manual articles TEST_iter9_manual_<hex>, 1 draft TEST_iter9_str_body_<hex>, 1 updated TEST_iter9_upd_<hex>, 1 make TEST_iter9_make_reg_<hex>, 1 temp subscriber TEST_iter9_<hex>@example.com (deleted in same test). Total ~6 TEST_ articles remain — admin can delete from /admin if desired. No production data modified.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_iteration9.py -v — 18 tests, ~9s. Admin = noxael18@gmail.com / Noxeal2026!. MAKE_KEY = noxeal-make-7f3a9b2c8d4e5f6a1b9c3d8e7f2a5b6c. Topic slugs: jeffrey-epstein, inteligencia-artificial, deepfakes, cbdc, salud-mental-redes. Sitemap index at /api/sitemap-index.xml lists 5 sub-sitemaps. Admin manual article: POST /api/admin/articles/manual with body=list or string, returns doc with fact_level (lowercased), verification_level, category_slug, status. ArticleUpdate now accepts fact_level, verification_level, status, source_url, author. Delete endpoints: /api/admin/users/{id}, /api/admin/newsletter/{email}, /api/comments/{id}. UI testids confirmed: create-article-btn, create-modal, create-{title|excerpt|category|status|fact-level|verification|tags|author|source|image|meta|body|save-draft|publish|cancel}, edit-modal + edit-* fields (pre-filled), delete-user-{id}, delete-subscriber-{email}, admin-delete-comment-{id}, tema-card-{slug}, tema-articles, tema-faq-{0..2}.",
+  "rca of the issue": "No critical bugs found. Two low-priority observations: (1) fact_level casing inconsistency — review the Admin.jsx <select> options vs stored value; (2) sitemap-index references /sitemap-*.xml (root) but endpoints live at /api/sitemap-*.xml — verify ingress rewrites for root-level sitemap paths or change the index loc URLs to use /api prefix. Iteration 9 features all delivered and working end-to-end."
+}
