@@ -8,6 +8,7 @@ import ViralCard from "@/components/ViralCard";
 import NewsletterSection from "@/components/NewsletterSection";
 import LiveCounter from "@/components/LiveCounter";
 import LazySection from "@/components/LazySection";
+import EditorialActivityStrip from "@/components/EditorialActivityStrip";
 
 export default function Home() {
   const [data, setData] = useState({ hero: null, side: [], viral: [], latest: [] });
@@ -108,6 +109,11 @@ export default function Home() {
             <Link to="/tendencias" className="btn-secondary" data-testid="hero-cta-tendencias">
               Ver tendencias
             </Link>
+          </div>
+
+          {/* Live editorial pulse — iter 11.A "Home Viva" */}
+          <div className="mt-10 max-w-2xl nx-fade-up nx-delay-300">
+            <EditorialActivityStrip />
           </div>
         </div>
       </section>

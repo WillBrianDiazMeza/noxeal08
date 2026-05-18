@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 11.A — Noxeal: post-reading + highlights CRUD + editorial activity strip. Backend 14/14 pytest passing (test_iteration11.py, ~13s) covering: GET /editorial/activity shape with last_published.minutes_ago + counts_24h/7d + recent array (counts_7d>=counts_24h sanity), GET /articles/{slug}/post-reading 200 with similar+contradiction+topic + 404 on unknown slug, GET /me/highlights unauth → 401, GET authed → list, POST color uppercase 'GREEN' coerced to 'green' + persisted text/note/paragraph_index, POST invalid color 'red' coerced to 'yellow', POST unknown slug → 404, GET /me/highlights/{slug} filters correctly, PATCH updates note+color (verified via subsequent GET), PATCH/DELETE 404 on nonexistent id, DELETE 200 on real id (double-delete → 404), regression Make.com POST /api/articles still works, /me/saved/sync no collision with catch-all {slug} route. Frontend (Playwright via REACT_APP_BACKEND_URL): editorial-activity-strip visible on home with pulse dot + activity-last-updated 'ahora' + activity-counts-24h(2)/activity-counts-7d(2) + activity-latest-link clickable. Article /articulo/noxeal-report-las-tendencias-virales-que-sacudieron-la-red-esta-semana renders article-lead separate from article-body-highlightable, which has 9 paragraphs with data-paragraph-index. Mouse drag selection (75 chars) triggers highlight-popover with highlight-color-yellow/green/blue + highlight-cancel. Clicking yellow creates highlights-list with highlight-item-{id}; highlight-add-note-{id} → highlight-note-input-{id} → Enter persists highlight-note-{id} ('Mi nota de prueba iter11'); hover + highlight-remove-{id} + window.confirm accept removes item + shows 'Eliminado' toast. post-reading section renders 5 tiles (post-reading-save, post-reading-share, post-reading-saved, post-reading-follow-narrative for matched pillar 'Salud mental y redes', post-reading-contradiction with opposite fact_level article) + post-reading-similar with 4 post-similar-{slug} items. Clicking post-reading-save updates ArticleEngagement save button text to 'Guardado' via CustomEvent noxeal:toggle-save. /mis-notas unauth shows mis-notas-local-status (CloudOff: 'Guardado solo en este navegador') + mis-notas-group-{slug} with 1 mis-notas-item green highlight. After login as noxael18@gmail.com, /mis-notas shows mis-notas-sync-status 'Sincronizado en tu cuenta · Noxael' with green Cloud icon + 5 server-side highlights (from earlier pytest runs). No /mis-notas-empty when local items exist; CTA path verified via component logic.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration11.py",
+    "/app/test_reports/pytest/iter11_results.xml"
+  ],
+  "action_items": [
+    "(Optional, low priority) The 5 server-side highlights left over from pytest runs are visible on /mis-notas for noxael18@gmail.com — admin can remove via UI or DELETE /api/me/highlights/{id} if desired.",
+    "(Optional, low priority) Console emits two 401 errors on every page load (likely /api/auth/me probe pre-login). Not a regression vs iter10 but consider downgrading to a silent fetch."
+  ],
+  "critical_code_review_comments": [
+    "HighlightIn field_validator(color, mode='before') correctly coerces ANY non-{yellow,green,blue} input to 'yellow' instead of 400 — defensive UX choice (matches spec: 'red' → yellow).",
+    "GET /me/highlights/{slug} is registered AFTER GET /me/highlights — FastAPI matches correctly because the non-param route takes precedence; verified by hitting /me/highlights (returns array) vs /me/highlights/{seed_slug} (returns filtered array).",
+    "POST /me/highlights performs an article existence check with PUBLIC_STATUS_FILTER before insert — prevents orphaned highlights on draft/deleted articles. Good.",
+    "editorial/activity: minutes_ago handles missing/malformed published_at with try/except returning None — robust. counts_24h/7d use isoformat string comparison, which is correct for ISO-8601 lexicographic ordering.",
+    "post-reading similar query uses $or on tags+category — generous match. Limit 4 + sort by published_at -1 matches the 'newest first' spec.",
+    "contradiction lookup uses opposite_map for fact_level family (rumor↔confirmed/investigation, etc.) — single fetch, may return null if no opposite exists; UI tile conditionally renders. Good.",
+    "PILLAR_TOPICS lookup is in-memory (no DB hit) — fast.",
+    "PATCH only accepts note+color fields (text/paragraph_index immutable post-creation) — sensible.",
+    "Anonymous-user fallback in HighlightLayer uses local-{timestamp}-{rand} ids in localStorage; merged with server highlights on auth so no data loss. Verified by seeing 1 local highlight pre-login + 5 server highlights post-login on same article slug grouping.",
+    "ArticleEngagement CustomEvent('noxeal:toggle-save') listener correctly forwards to internal toggleSave, keeping bookmark logic in one place — clean."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration11.py (NEW — 14 pytest tests, all pass in 13s)",
+    "/app/test_reports/pytest/iter11_results.xml (NEW)",
+    "/app/test_reports/iteration_11.json (this report)"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 iter11 pytest, ~13s)",
+    "frontend": "100% — all 13 review-request frontend bullets verified: editorial strip with pulse+counts+latest-link on home; article-lead + article-body-highlightable with paragraphs[data-paragraph-index]; selection triggers highlight-popover with 3 colors + cancel; yellow click creates highlight-item-{id}; add-note input+Enter persists; hover+remove+confirm removes; post-reading 5 tiles + 4 similar; follow-narrative and contradiction conditional tiles render when criteria met; post-reading-save click toggles ArticleEngagement to 'Guardado' via CustomEvent; /mis-notas unauth shows local-status + grouped highlights; /mis-notas authed shows sync-status + Cloud icon + server highlights"
+  },
+  "test_credentials": "noxael18@gmail.com / Noxeal2026! (verified). Make.com X-API-Key noxeal-make-7f3a9b2c8d4e5f6a1b9c3d8e7f2a5b6c (verified).",
+  "seed_data_creation": "Created via Make.com endpoint for highlight tests: TEST iter11 highlight seed * (1), TEST iter11 regression make * (1). 5 server-side highlights remain on noxael18@gmail.com account on slug noxeal-report-las-tendencias-virales-que-sacudieron-la-red-esta-semana (from pytest runs) — visible at /mis-notas; admin can purge via UI or DELETE endpoint if desired. No production data modified.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_iteration11.py -v — 14 tests, ~13s. Admin = noxael18@gmail.com / Noxeal2026!. MAKE_KEY = noxeal-make-7f3a9b2c8d4e5f6a1b9c3d8e7f2a5b6c. Stable article for highlights/post-reading testing: /articulo/noxeal-report-las-tendencias-virales-que-sacudieron-la-red-esta-semana (has pillar topic match 'salud mental y redes' AND contradiction available). Testids — Home: editorial-activity-strip, activity-last-updated, activity-counts-24h/7d, activity-latest-link. Article: article-lead, article-body-highlightable (with p[data-paragraph-index]), highlight-popover, highlight-color-yellow/green/blue, highlight-cancel, highlights-list, highlight-item-{id}, highlight-add-note-{id}, highlight-note-input-{id}, highlight-note-save-{id}, highlight-note-{id}, highlight-remove-{id}, post-reading, post-reading-save, post-reading-share, post-reading-saved, post-reading-follow-narrative, post-reading-contradiction, post-reading-similar, post-similar-{slug}. MisNotas: mis-notas-page, mis-notas-local-status (unauth), mis-notas-sync-status (auth), mis-notas-empty, mis-notas-group-{slug}, mis-notas-item-{id}, mis-notas-remove-{id}, mis-notas-loading. To trigger popover via Playwright, drag selection >3 chars inside [data-testid=article-body-highlightable] p — selection of 75 chars worked reliably. window.confirm is auto-accepted via page.on('dialog', accept).",
+  "rca of the issue": "No bugs found. All 14 backend tests + 13 frontend bullets from review request verified pass. Iteration 11.A ready to ship."
+}

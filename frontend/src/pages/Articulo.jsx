@@ -16,6 +16,8 @@ import {
   RealityVsViralityBlock,
   ArticleFAQ,
 } from "@/components/ArticleTransparency";
+import HighlightLayer from "@/components/HighlightLayer";
+import PostReadingActions from "@/components/PostReadingActions";
 
 function formatDate(iso) {
   if (!iso) return "";
@@ -163,12 +165,16 @@ export default function Articulo() {
           )}
         </div>
 
-        <div className="max-w-3xl mx-auto px-5 lg:px-0 prose-noxeal" data-testid="article-body">
-          <p className="text-xl text-[#1a1a1a] leading-relaxed mb-8 font-medium">
+        <div className="max-w-3xl mx-auto px-5 lg:px-0">
+          <p className="text-xl text-[#1a1a1a] leading-relaxed mb-8 font-medium prose-noxeal" data-testid="article-lead">
             {article.excerpt}
           </p>
-          {(article.body || []).map((p, i) => (<p key={i}>{p}</p>))}
         </div>
+        <HighlightLayer
+          slug={article.slug}
+          paragraphs={article.body || []}
+          articleTitle={article.title}
+        />
 
         {/* Editorial transparency blocks (iter 10) — render only if data exists */}
         <div className="max-w-3xl mx-auto px-5 lg:px-0">
@@ -213,6 +219,25 @@ export default function Articulo() {
             <ArticleFAQ faqs={article.faqs} articleTitle={article.title} />
           </div>
         )}
+
+        {/* Post-reading experience (iter 11.A) */}
+        <div className="max-w-3xl mx-auto px-5 lg:px-0">
+          <PostReadingActions
+            article={article}
+            onSaveToggle={() => {
+              // Trigger same action as the bookmark button by dispatching to ArticleEngagement via custom event
+              window.dispatchEvent(new CustomEvent("noxeal:toggle-save", { detail: { slug: article.slug } }));
+            }}
+            isSaved={false}
+            onShare={() => {
+              if (navigator.share) {
+                navigator.share({ title: article.title, text: article.excerpt, url: window.location.href }).catch(() => {});
+              } else {
+                navigator.clipboard?.writeText(window.location.href);
+              }
+            }}
+          />
+        </div>
 
         {/* Comments */}
         <Comments slug={article.slug} />

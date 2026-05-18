@@ -91,6 +91,7 @@ export default function Header() {
             <NavLink to="/explorar" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-explorar">Explorar</NavLink>
             <NavLink to="/buscar" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-buscar">Buscar</NavLink>
             <NavLink to="/guardados" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-guardados">Tu lista de lectura</NavLink>
+            <NavLink to="/mis-notas" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-notas">Tus subrayados</NavLink>
             {user && user.email ? (
               <button onClick={()=>{ logout(); setMobileOpen(false); }} className="nav-link text-left" data-testid="m-nav-logout">Salir</button>
             ) : (

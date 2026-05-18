@@ -21,6 +21,7 @@ const Tendencias = lazy(() => import("@/pages/Tendencias"));
 const Categorias = lazy(() => import("@/pages/Categorias"));
 const Buscar = lazy(() => import("@/pages/Buscar"));
 const Guardados = lazy(() => import("@/pages/Guardados"));
+const MisNotas = lazy(() => import("@/pages/MisNotas"));
 const Tema = lazy(() => import("@/pages/Tema"));
 const TemasIndex = lazy(() => import("@/pages/Tema").then((m) => ({ default: m.TemasIndex })));
 const Entrar = lazy(() => import("@/pages/Entrar"));
@@ -50,6 +51,8 @@ function App() {
             <Route path="/buscar" element={<Buscar />} />
             <Route path="/guardados" element={<Guardados />} />
             <Route path="/saved" element={<Guardados />} />
+            <Route path="/mis-notas" element={<MisNotas />} />
+            <Route path="/notas" element={<MisNotas />} />
             <Route path="/temas" element={<TemasIndex />} />
             <Route path="/temas/:slug" element={<Tema />} />
             {/* SEO-friendly aliases — singular & long-tail URLs */}

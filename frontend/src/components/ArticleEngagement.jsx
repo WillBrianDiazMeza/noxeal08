@@ -75,6 +75,14 @@ export default function ArticleEngagement({ slug, initialLikes = 0, views = 0, c
     }
   };
 
+  // Listen to external triggers (e.g. post-reading action tile)
+  useEffect(() => {
+    const onExt = (e) => { if (e.detail?.slug === slug) toggleSave(); };
+    window.addEventListener("noxeal:toggle-save", onExt);
+    return () => window.removeEventListener("noxeal:toggle-save", onExt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, saved, user?.email]);
+
   return (
     <div className="flex items-center gap-2 flex-wrap" data-testid="article-engagement">
       <button

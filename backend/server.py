@@ -436,6 +436,209 @@ async def my_saved_remove(slug: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
+# ---------- Highlights & notes (Kindle-style) ----------
+class HighlightIn(BaseModel):
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    slug: str
+    text: str = Field(min_length=2, max_length=2000)
+    color: str = "yellow"        # yellow | green | blue
+    note: Optional[str] = ""
+    paragraph_index: Optional[int] = 0
+
+    @field_validator("color", mode="before")
+    @classmethod
+    def _coerce_color(cls, v):
+        v = (str(v) if v is not None else "yellow").lower().strip()
+        return v if v in ("yellow", "green", "blue") else "yellow"
+
+
+@api_router.get("/me/highlights")
+async def my_highlights_all(user: dict = Depends(get_current_user)):
+    """All highlights for the user, newest first, grouped client-side by slug."""
+    docs = await db.user_highlights.find(
+        {"user_id": user["id"]}, {"_id": 0}
+    ).sort("created_at", -1).limit(500).to_list(500)
+    return docs
+
+
+@api_router.get("/me/highlights/{slug}")
+async def my_highlights_by_article(slug: str, user: dict = Depends(get_current_user)):
+    docs = await db.user_highlights.find(
+        {"user_id": user["id"], "slug": slug}, {"_id": 0}
+    ).sort("created_at", 1).to_list(200)
+    return docs
+
+
+@api_router.post("/me/highlights")
+async def my_highlights_create(data: HighlightIn, user: dict = Depends(get_current_user)):
+    # Verify the article exists & is published
+    article = await db.articles.find_one(
+        {"slug": data.slug, **PUBLIC_STATUS_FILTER},
+        {"_id": 0, "slug": 1, "title": 1},
+    )
+    if not article:
+        raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "slug": data.slug,
+        "article_title": article.get("title", ""),
+        "text": _sanitize(data.text)[:2000],
+        "color": data.color,
+        "note": _sanitize(data.note or "")[:1000],
+        "paragraph_index": int(data.paragraph_index or 0),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.user_highlights.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.patch("/me/highlights/{hid}")
+async def my_highlights_update(hid: str, payload: dict, user: dict = Depends(get_current_user)):
+    """Update just the note or the color of an existing highlight."""
+    upd = {}
+    if isinstance(payload, dict):
+        if "note" in payload:
+            upd["note"] = _sanitize(str(payload.get("note") or ""))[:1000]
+        if "color" in payload:
+            c = str(payload.get("color") or "").lower().strip()
+            upd["color"] = c if c in ("yellow", "green", "blue") else "yellow"
+    if not upd:
+        raise HTTPException(status_code=400, detail="Sin cambios")
+    upd["updated_at"] = datetime.now(timezone.utc).isoformat()
+    res = await db.user_highlights.update_one(
+        {"id": hid, "user_id": user["id"]}, {"$set": upd}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="No encontrado")
+    return {"ok": True}
+
+
+@api_router.delete("/me/highlights/{hid}")
+async def my_highlights_delete(hid: str, user: dict = Depends(get_current_user)):
+    res = await db.user_highlights.delete_one({"id": hid, "user_id": user["id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="No encontrado")
+    return {"ok": True}
+
+
+# ---------- Editorial activity feed (home "viva") ----------
+@api_router.get("/editorial/activity")
+async def editorial_activity():
+    """Public: lightweight signal of recent editorial pulse for the home strip.
+    Returns: { last_published: {slug,title,published_at,minutes_ago},
+               counts_24h: int, counts_7d: int,
+               recent: [{slug,title,published_at,fact_level,minutes_ago}, ...] }
+    """
+    if db is None:
+        return {"last_published": None, "counts_24h": 0, "counts_7d": 0, "recent": []}
+    now = datetime.now(timezone.utc)
+    iso24 = (now - timedelta(hours=24)).isoformat()
+    iso7d = (now - timedelta(days=7)).isoformat()
+    recent_docs = await db.articles.find(
+        PUBLIC_STATUS_FILTER,
+        {"_id": 0, "slug": 1, "title": 1, "published_at": 1, "fact_level": 1, "category": 1},
+    ).sort("published_at", -1).limit(6).to_list(6)
+    counts_24h = await db.articles.count_documents(
+        {**PUBLIC_STATUS_FILTER, "published_at": {"$gte": iso24}}
+    )
+    counts_7d = await db.articles.count_documents(
+        {**PUBLIC_STATUS_FILTER, "published_at": {"$gte": iso7d}}
+    )
+
+    def _minutes_ago(iso_str):
+        if not iso_str:
+            return None
+        try:
+            t = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=timezone.utc)
+            return max(0, int((now - t).total_seconds() // 60))
+        except Exception:
+            return None
+
+    last = None
+    if recent_docs:
+        last = {**recent_docs[0], "minutes_ago": _minutes_ago(recent_docs[0].get("published_at"))}
+    recent = [{**d, "minutes_ago": _minutes_ago(d.get("published_at"))} for d in recent_docs]
+    return {
+        "last_published": last,
+        "counts_24h": counts_24h,
+        "counts_7d": counts_7d,
+        "recent": recent,
+    }
+
+
+# ---------- Post-reading suggestions ----------
+@api_router.get("/articles/{slug}/post-reading")
+async def post_reading_suggestions(slug: str):
+    """Returns curated next actions for the end of an article:
+    - similar: articles sharing tags
+    - contradiction: an article on same topic with opposite fact_level (if exists)
+    - timeline: pillar topic this article is part of (if any)
+    """
+    if db is None:
+        return {"similar": [], "contradiction": None, "topic": None}
+    article = await db.articles.find_one(
+        {"slug": slug, **PUBLIC_STATUS_FILTER},
+        {"_id": 0, "slug": 1, "tags": 1, "fact_level": 1, "category": 1},
+    )
+    if not article:
+        raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    tags = article.get("tags", []) or []
+    fact_level = article.get("fact_level", "analysis")
+
+    # Similar: same tags, same category, newest first, exclude self
+    sim = []
+    if tags:
+        sim = await db.articles.find(
+            {
+                **PUBLIC_STATUS_FILTER,
+                "slug": {"$ne": slug},
+                "$or": [
+                    {"tags": {"$in": tags}},
+                    {"category": article.get("category")},
+                ],
+            },
+            {"_id": 0, "slug": 1, "title": 1, "excerpt": 1, "fact_level": 1,
+             "category": 1, "published_at": 1, "read_time": 1},
+        ).sort("published_at", -1).limit(4).to_list(4)
+
+    # Contradiction: an article on same tag with opposite fact_level family
+    opposite_map = {
+        "rumor": ["confirmed", "investigation"],
+        "opinion": ["confirmed", "investigation"],
+        "story": ["investigation", "confirmed"],
+        "confirmed": ["rumor", "opinion"],
+        "investigation": ["rumor", "opinion"],
+        "analysis": ["rumor", "investigation"],
+    }
+    contradiction = None
+    if tags:
+        opposite = opposite_map.get(fact_level, [])
+        if opposite:
+            contradiction = await db.articles.find_one(
+                {
+                    **PUBLIC_STATUS_FILTER,
+                    "slug": {"$ne": slug},
+                    "tags": {"$in": tags},
+                    "fact_level": {"$in": opposite},
+                },
+                {"_id": 0, "slug": 1, "title": 1, "excerpt": 1,
+                 "fact_level": 1, "verification_level": 1},
+            )
+
+    # Topic: pillar that contains any of these tags
+    topic = None
+    for t in PILLAR_TOPICS:
+        if any(tag in tags for tag in t.get("tags", [])):
+            topic = {"slug": t["slug"], "name": t["name"]}
+            break
+
+    return {"similar": sim, "contradiction": contradiction, "topic": topic}
+
+
 @api_router.get("/articles/{slug}/related")
 async def related_articles(slug: str, limit: int = 3):
     """Find related articles by shared tags, then by category, excluding the same slug."""
