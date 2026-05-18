@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Mail, Instagram, Send } from "lucide-react";
 import { api } from "@/lib/api";
+import { useLang } from "@/lib/i18n";
 
 export default function Footer() {
+  const { t } = useLang();
   const [cfg, setCfg] = useState({ contact_email: "hola@noxeal.com", social: {} });
   useEffect(() => {
     api.get("/public-config").then(({ data }) => setCfg(data)).catch(() => {});
@@ -22,8 +24,7 @@ export default function Footer() {
         <div className="lg:col-span-5">
           <div className="nx-logo mb-4" style={{ color: "#fff" }}>NOXEAL</div>
           <p className="text-[15px] text-white/60 leading-relaxed max-w-md mb-6">
-            Periodismo lento sobre la cultura digital. Transformamos tendencias, historias virales y
-            temas complejos en contenido claro, verificable e inteligente.
+            {t("Periodismo lento sobre la cultura digital. Transformamos tendencias, historias virales y temas complejos en contenido claro, verificable e inteligente.")}
           </p>
           <a
             href={`mailto:${cfg.contact_email}`}
@@ -50,53 +51,53 @@ export default function Footer() {
         </div>
 
         <div className="lg:col-span-2">
-          <div className="label-eyebrow-dark mb-4">Navegar</div>
+          <div className="label-eyebrow-dark mb-4">{t("Navegar")}</div>
           <ul className="space-y-2 text-[14px] text-white/70">
-            <li><Link to="/" className="hover:text-white" data-testid="footer-link-inicio">Inicio</Link></li>
-            <li><Link to="/explorar" className="hover:text-white" data-testid="footer-link-explorar">Explorar</Link></li>
-            <li><Link to="/tendencias" className="hover:text-white" data-testid="footer-link-tendencias">Tendencias</Link></li>
-            <li><Link to="/categorias" className="hover:text-white" data-testid="footer-link-categorias">Categorías</Link></li>
+            <li><Link to="/" className="hover:text-white" data-testid="footer-link-inicio">{t("nav.home")}</Link></li>
+            <li><Link to="/explorar" className="hover:text-white" data-testid="footer-link-explorar">{t("nav.explore")}</Link></li>
+            <li><Link to="/tendencias" className="hover:text-white" data-testid="footer-link-tendencias">{t("nav.trends")}</Link></li>
+            <li><Link to="/categorias" className="hover:text-white" data-testid="footer-link-categorias">{t("nav.categories")}</Link></li>
           </ul>
         </div>
 
         <div className="lg:col-span-2">
-          <div className="label-eyebrow-dark mb-4">Editorial</div>
+          <div className="label-eyebrow-dark mb-4">{t("Editorial")}</div>
           <ul className="space-y-2 text-[14px] text-white/70">
-            <li><Link to="/editorial" className="hover:text-white" data-testid="footer-link-editorial">Política editorial</Link></li>
-            <li><Link to="/transparencia-ia" className="hover:text-white" data-testid="footer-link-transparency">Transparencia IA</Link></li>
-            <li><Link to="/correcciones" className="hover:text-white" data-testid="footer-link-corrections">Correcciones</Link></li>
-            <li><Link to="/disclaimer" className="hover:text-white" data-testid="footer-link-disclaimer">Aviso editorial</Link></li>
-            <li><Link to="/about" className="hover:text-white" data-testid="footer-link-about">Sobre Noxeal</Link></li>
-            <li><Link to="/contact" className="hover:text-white" data-testid="footer-link-contacto">Contacto</Link></li>
+            <li><Link to="/editorial" className="hover:text-white" data-testid="footer-link-editorial">{t("Política editorial")}</Link></li>
+            <li><Link to="/transparencia-ia" className="hover:text-white" data-testid="footer-link-transparency">{t("Transparencia IA")}</Link></li>
+            <li><Link to="/correcciones" className="hover:text-white" data-testid="footer-link-corrections">{t("Correcciones")}</Link></li>
+            <li><Link to="/disclaimer" className="hover:text-white" data-testid="footer-link-disclaimer">{t("Aviso editorial")}</Link></li>
+            <li><Link to="/about" className="hover:text-white" data-testid="footer-link-about">{t("Sobre Noxeal")}</Link></li>
+            <li><Link to="/contact" className="hover:text-white" data-testid="footer-link-contacto">{t("Contacto")}</Link></li>
           </ul>
         </div>
         <div className="lg:col-span-2">
-          <div className="label-eyebrow-dark mb-4">Legal</div>
+          <div className="label-eyebrow-dark mb-4">{t("Legal")}</div>
           <ul className="space-y-2 text-[14px] text-white/70">
-            <li><Link to="/privacy" className="hover:text-white" data-testid="footer-link-privacidad">Privacidad</Link></li>
-            <li><Link to="/cookies" className="hover:text-white" data-testid="footer-link-cookies">Cookies</Link></li>
-            <li><Link to="/terms" className="hover:text-white" data-testid="footer-link-terminos">Términos</Link></li>
+            <li><Link to="/privacy" className="hover:text-white" data-testid="footer-link-privacidad">{t("Privacidad")}</Link></li>
+            <li><Link to="/cookies" className="hover:text-white" data-testid="footer-link-cookies">{t("Cookies")}</Link></li>
+            <li><Link to="/terms" className="hover:text-white" data-testid="footer-link-terminos">{t("Términos")}</Link></li>
           </ul>
         </div>
 
         <div className="lg:col-span-3">
-          <div className="label-eyebrow-dark mb-4">Newsletter</div>
+          <div className="label-eyebrow-dark mb-4">{t("Newsletter")}</div>
           <p className="text-[14px] text-white/60 mb-4">
-            Análisis semanal directo a tu correo. Sin spam.
+            {t("Análisis semanal directo a tu correo. Sin spam.")}
           </p>
           <Link
             to="/suscribirse"
             className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-white text-black text-sm font-medium hover:bg-white/90"
             data-testid="footer-cta-newsletter"
           >
-            Suscribirme <Send size={14} />
+            {t("Suscribirme")} <Send size={14} />
           </Link>
         </div>
       </div>
       <div className="border-t border-white/10">
         <div className="max-w-7xl mx-auto px-5 lg:px-8 py-6 flex flex-col md:flex-row md:justify-between text-xs text-white/50 gap-2">
-          <span>© {new Date().getFullYear()} Noxeal. Todos los derechos reservados.</span>
-          <span>Hecho con criterio editorial.</span>
+          <span>© {new Date().getFullYear()} Noxeal. {t("Todos los derechos reservados.")}</span>
+          <span>{t("Hecho con criterio editorial.")}</span>
         </div>
       </div>
     </footer>

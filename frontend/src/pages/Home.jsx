@@ -9,8 +9,10 @@ import NewsletterSection from "@/components/NewsletterSection";
 import LiveCounter from "@/components/LiveCounter";
 import LazySection from "@/components/LazySection";
 import EditorialActivityStrip from "@/components/EditorialActivityStrip";
+import { useLang } from "@/lib/i18n";
 
 export default function Home() {
+  const { t } = useLang();
   const [data, setData] = useState({ hero: null, side: [], viral: [], latest: [] });
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
@@ -94,20 +96,19 @@ export default function Home() {
       {/* ========== HERO ========== */}
       <section className="pt-20 md:pt-28 pb-24 md:pb-32" data-testid="hero-section">
         <div className="max-w-7xl mx-auto px-5 lg:px-8">
-          <div className="label-eyebrow nx-fade-up">N°01 · Edición continua</div>
+          <div className="label-eyebrow nx-fade-up">{t("N°01 · Edición continua")}</div>
           <h1 className="h-display text-[44px] sm:text-6xl md:text-7xl lg:text-[96px] mt-6 max-w-5xl nx-fade-up nx-delay-100">
-            Descubre la <em className="font-serif italic">verdad</em> antes de que el algoritmo la distorsione.
+            {t("Descubre la verdad antes de que el algoritmo la distorsione.")}
           </h1>
           <p className="text-lg md:text-xl text-[#424245] leading-relaxed max-w-2xl mt-8 nx-fade-up nx-delay-200">
-            Noxeal transforma tendencias, historias virales y temas complejos en contenido claro,
-            verificable e inteligente.
+            {t("Noxeal transforma tendencias, historias virales y temas complejos en contenido claro, verificable e inteligente.")}
           </p>
           <div className="flex flex-wrap gap-3 mt-10 nx-fade-up nx-delay-300">
             <Link to="/explorar" className="btn-primary" data-testid="hero-cta-explorar">
-              Explorar artículos <ArrowUpRight size={16} />
+              {t("Explorar artículos")} <ArrowUpRight size={16} />
             </Link>
             <Link to="/tendencias" className="btn-secondary" data-testid="hero-cta-tendencias">
-              Ver tendencias
+              {t("Ver tendencias")}
             </Link>
           </div>
 

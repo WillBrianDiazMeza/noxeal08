@@ -1,0 +1,48 @@
+{
+  "summary": "Iter 13 — Noxeal multi-language i18n via Claude (auto-translate + cache). Backend: 21/21 pytest passing in ~7s (test_iteration13_i18n.py) covering /api/articles/{slug}?lang=, /api/translate/strings (cache hit/miss/invalid/empty), listings with lang (cached-only — featured/articles/most-read), invalid-lang fallback, and full regression on Make.com POST, editorial/activity, post-reading, me/saved-sync, me/highlights, admin/webhook-logs. Frontend Playwright verified: ?lang=fr/en/nl URL hydration → html.lang + lang badge + nav words + hero h1 'Découvrez la vérité avant que l'algorithme ne la déforme' (real Claude output) ✅; localStorage persistence when URL has no lang param ✅; article translation banner + article-see-original ↔ article-back-translated toggle ✅; api.js interceptor injects lang=fr in /api/search GET ✅; banner NOT shown without lang param ✅. ONE CRITICAL BUG FOUND: lang-switcher click while URL already contains ?lang= param does NOT switch language — see rca below.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "LanguageSwitcher.jsx onClick handler (line 48-55) + i18n.js detectInitial (line 103-114)",
+        "issue": "Clicking lang-switcher-button → lang-option-fr (or any other lang) does NOT switch language IF the current URL already contains a ?lang= query param. setLang() correctly updates localStorage, then window.location.reload() reloads — but detectInitial() reads URL ?lang= FIRST (before localStorage), so the old URL param wins on every reload. User sees nothing change. Works fine only when URL has no ?lang= param (e.g. direct visit to '/').",
+        "selector": "[data-testid='lang-option-fr']",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration13_i18n.py",
+    "/app/test_reports/pytest/iter13_results.xml"
+  ],
+  "action_items": [
+    "FIX LanguageSwitcher.jsx onClick: before calling window.location.reload(), update the URL ?lang= param so detectInitial reads the NEW lang. Suggested fix (3 lines):\n    const url = new URL(window.location.href);\n    url.searchParams.set('lang', l.code);\n    window.history.replaceState({}, '', url.toString());\n  // then setTimeout(() => window.location.reload(), 80) as before.\n  Alternative: do `window.location.search` rewrite to replace lang param, or simply navigate via `window.location.href = url.toString()` (which already triggers reload).",
+    "Optional UX: skip the soft reload entirely and propagate lang change via React state + i18n re-render (avoid full reload cost). All server fetches already use the api.js interceptor to inject lang, so a soft state change should be enough. This would also fix the URL-param bug as a side effect."
+  ],
+  "critical_code_review_comments": [
+    "i18n.js detectInitial precedence (URL > localStorage > navigator) is correct in spec terms (?lang= should override), but the switcher click flow is broken when URL has a stale ?lang= param — fix needs to keep them in sync.",
+    "server.py:377-417 GET /api/articles/{slug}?lang= correctly persists translations in db.articles.translations.{lang} via $set, returns lang+has_original, strips translations dict from response — clean.",
+    "server.py:420-464 POST /api/translate/strings handles empty/invalid/missing fields gracefully (returns input or [] with no exception); cache key (lang, src) in db.ui_translations is sensible. Cap of 200 strings × 500 chars is reasonable.",
+    "_apply_cached_translation in server.py is called on listings to apply ONLY cached translations (no fresh Claude calls) — verified: featured/articles/most-read return items with lang='es' for uncached entries and lang='en/fr/nl' for cached, never trigger fresh Claude → fast & cheap as designed.",
+    "Invalid lang ('xx') correctly falls back to es with has_original absent — verified by test_article_invalid_lang_fallbacks_to_spanish.",
+    "ai_service.translate_article(): translates title/excerpt/body/faqs/etc atomically. Cache stored once per (slug, lang). Translated body preserves HTML structure based on real article output observed in Playwright.",
+    "Make.com POST regression: still working with X-API-Key. Article creation respects publish:false → draft. No conflict with new lang logic."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration13_i18n.py (NEW — 21 pytest tests, all passing in ~7s)",
+    "/app/test_reports/pytest/iter13_results.xml (NEW)",
+    "/app/test_reports/iteration_13.json (this report)"
+  ],
+  "success_rate": {
+    "backend": "100% (21/21 pytest, ~7s, includes article translation EN+FR with Claude live + cache hit verification + UI strings cache + listings cached-only + Make.com regression + post-reading + saved/sync + highlights + admin webhook-logs)",
+    "frontend": "~85% — 7/8 critical i18n flows verified PASS. Failing flow: switcher click while URL already has ?lang= param (root caused, fix specified). All other UI behavior (URL hydration for ES/EN/FR/NL, hero h1 translation, footer translation when properly switched, article banner toggle ↔ see-original/back-translated, localStorage persistence without URL param, api.js interceptor lang injection in /api/search, no banner without lang param) works correctly."
+  },
+  "test_credentials": "noxael18@gmail.com / Noxeal2026! (admin). MAKE_KEY: noxeal-make-7f3a9b2c8d4e5f6a1b9c3d8e7f2a5b6c.",
+  "seed_data_creation": "test_iteration13_i18n.py created 1 article (TEST_iter13 Regression Make {marker}) as draft (publish:false → no email). Also primed db.articles.translations.en and .fr for the first published article + db.ui_translations with FR cache for ['Hola mundo iter13','Adiós iter13']. Harmless — uses TEST_ prefix where applicable. Admin can purge via DELETE /api/admin/articles or via mongo shell.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_iteration13_i18n.py -v — 21 tests, ~7s when cache primed (12-18s first run for Claude article translation). Frontend testids: lang-switcher-button, lang-switcher-menu, lang-option-{es,en,fr,nl}, article-translation-banner, article-see-original, article-back-translated. Reproduce switcher bug: visit /?lang=es, click switcher, click FR — expect FR, get ES (URL param wins). Fix in LanguageSwitcher.jsx onClick: add `const url=new URL(window.location.href); url.searchParams.set('lang', l.code); window.history.replaceState({},'',url.toString());` BEFORE the setTimeout reload call. After fix, re-run Playwright TEST 4 and TEST 5 (footer FR) which depend on it.",
+  "rca of the issue": "BUG: Language switcher click ignored when URL has ?lang= param.\n\nREPRODUCTION:\n1. Visit https://trending-news-3.preview.emergentagent.com/?lang=es (or any other lang in URL).\n2. Click [data-testid='lang-switcher-button'] → menu opens.\n3. Click [data-testid='lang-option-fr'].\n4. EXPECTED: page reloads in French (Découvrez la vérité..., Accueil, FR badge).\n5. ACTUAL: page reloads in Spanish — html.lang='es-ES', localStorage='es' (overwritten by useEffect), badge='ES', H1='Descubre la verdad...'.\n\nROOT CAUSE:\n- /app/frontend/src/components/LanguageSwitcher.jsx:48-55 calls setLang(l.code) which writes localStorage='fr', then window.location.reload() reloads the SAME URL (still '?lang=es').\n- /app/frontend/src/lib/i18n.js:103-114 detectInitial() reads URL '?lang=' FIRST (line 105-106), then localStorage. Since URL still says lang=es, initial state returns 'es'. Then useEffect line 169-174 writes localStorage='es' again, overwriting the 'fr' that was just set. Bug fully reproducible.\n\nMITIGATION (one-line code fix in LanguageSwitcher.jsx line 49-54):\n```jsx\nonClick={() => {\n  setLang(l.code);\n  setOpen(false);\n  if (typeof window !== 'undefined') {\n    try {\n      const u = new URL(window.location.href);\n      u.searchParams.set('lang', l.code);\n      window.history.replaceState({}, '', u.toString());\n    } catch {}\n    setTimeout(() => window.location.reload(), 80);\n  }\n}}\n```\n\nThis keeps URL ?lang= in sync with the user's selection so detectInitial reads the correct value on reload. After fix: Playwright TEST 4 (switcher reload to FR from ES URL) and TEST 5 (footer renders in FR) should both pass. No backend changes needed."
+}

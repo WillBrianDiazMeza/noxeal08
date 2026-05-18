@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Highlighter as HighlighterIcon, Trash2, Cloud, CloudOff } from "lucide-react";
 import { toast } from "sonner";
@@ -34,7 +34,7 @@ export default function MisNotas() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     if (user?.email) {
       try {
@@ -45,9 +45,9 @@ export default function MisNotas() {
       setItems(readAllLocal());
     }
     setLoading(false);
-  };
+  }, [user?.email]);
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [user?.email]);
+  useEffect(() => { load(); }, [load]);
 
   const grouped = useMemo(() => {
     const map = {};

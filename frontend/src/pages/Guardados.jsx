@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Bookmark, Trash2, Cloud, CloudOff } from "lucide-react";
 import { toast } from "sonner";
@@ -33,7 +33,7 @@ export default function Guardados() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     let slugs = readSavedSlugs();
     // If logged in, sync with server first (merges local + remote, server is source of truth)
@@ -62,15 +62,14 @@ export default function Guardados() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     load();
     const onStorage = (e) => { if (e.key === LS_SAVE) load(); };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.email]);
+  }, [load]);
 
   const removeOne = async (slug) => {
     const next = readSavedSlugs().filter((s) => s !== slug);
