@@ -11,6 +11,8 @@ import GAnalytics from "@/components/GAnalytics";
 import Home from "@/pages/Home";
 import Articulo from "@/pages/Articulo";
 import Static from "@/pages/Static";
+import TrendingTicker from "@/components/TrendingTicker";
+import LoadingScreen from "@/components/LoadingScreen";
 import { About, Privacy, Terms, Cookies, Disclaimer, Contact, Editorial, TransparencyAI, Corrections } from "@/pages/Legal";
 
 // Code-split below-the-fold / admin routes — they don't load until the user navigates
@@ -23,14 +25,7 @@ const Suscribirse = lazy(() => import("@/pages/Suscribirse"));
 const Admin = lazy(() => import("@/pages/Admin"));
 const ProtectedAdmin = lazy(() => import("@/components/ProtectedAdmin"));
 
-const PageFallback = () => (
-  <div className="pt-32 pb-32 min-h-[60vh] flex items-center justify-center" data-testid="route-fallback">
-    <div className="text-center">
-      <div className="h-display text-2xl text-[#86868b] mb-2">Noxeal</div>
-      <div className="text-xs uppercase tracking-widest text-[#86868b] animate-pulse">Cargando…</div>
-    </div>
-  </div>
-);
+const PageFallback = () => <LoadingScreen />;
 
 function App() {
   return (
@@ -42,6 +37,7 @@ function App() {
           <AdSenseLoader />
           <GAnalytics />
           <Header />
+          <TrendingTicker />
           <Suspense fallback={<PageFallback />}>
           <Routes>
             <Route path="/" element={<Home />} />

@@ -9,6 +9,7 @@ import RelatedArticles from "@/components/RelatedArticles";
 import ArticleEngagement from "@/components/ArticleEngagement";
 import FactBadge from "@/components/FactBadge";
 import VerificationBar from "@/components/VerificationBar";
+import ReadingProgress from "@/components/ReadingProgress";
 
 function formatDate(iso) {
   if (!iso) return "";
@@ -47,6 +48,7 @@ export default function Articulo() {
 
   return (
     <main data-testid="article-page">
+      <ReadingProgress />
       <SEO
         title={article.title}
         description={article.excerpt}
