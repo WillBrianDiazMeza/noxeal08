@@ -238,3 +238,49 @@ related articles, SEO (helmet, sitemap.xml, robots.txt), polish visual.
 - P2: Sugerencias post-lectura ("Narrativas similares", "La evolución de esta historia").
 - P2: Multi-idioma (ES/EN/FR/NL) con routing y traducción.
 - P2: Audio articles (TTS) + dark mode premium.
+
+
+### Iteración 9 (2026-05-18) ⭐ SEO PRO + ADMIN CRUD COMPLETO
+**Tests**: backend 18/18 (100%) · frontend 100% · `retest_needed: False`
+
+#### Bugfix visual
+- 🐛 **Cuadrado negro del header eliminado**: `noxeal-mark.png` era un PNG sólido negro. Reemplazado por wordmark "NOXEAL" tipográfico + punto azul `#3B82F6` minúsculo decorativo. Mismo cambio en `LoadingScreen` (ahora un dot pulsante azul con glow).
+
+#### Admin: CRUD manual + eliminación
+- 📝 **`POST /api/admin/articles/manual`** (autenticado): crea un artículo escrito por el CEO sin pasar por Make.com. Pydantic `ArticleCreateManual` con `field_validator` que tolera body como string suelto, sanitización, fallback de verification_level por fact_level.
+- 🗑️ **`DELETE /api/admin/users/{id}`**: elimina cuenta, anonimiza sus comentarios a "Usuario eliminado". Protege contra borrarse a sí mismo y contra eliminar al último admin.
+- 🗑️ **`DELETE /api/admin/newsletter/{email}`**: desuscribe desde admin.
+- 🔄 **Auto-refresh 30s** en `ArticlesPanel` y `CommentsPanel` para que los artículos publicados por Make.com aparezcan automáticamente.
+- ✏️ **ArticleUpdate ampliado**: ahora acepta `fact_level`, `verification_level`, `status`, `source_url`, `author` en el PUT.
+- 🎛️ **Modal "Nuevo artículo"** (Admin.jsx `CreateArticleModal`): form con title, categoría dropdown, status dropdown, fact_level dropdown (6 niveles), verification slider 0-100 que auto-ajusta al cambiar fact_level, excerpt, tags, autor, fuente URL, imagen, meta description, body multi-párrafo. Botones "Guardar borrador" / "Publicar ya".
+- 🎛️ **Modal "Editar"** reforzado con los mismos campos (pre-rellenados desde el artículo).
+- 🗑️ Botones "Eliminar" rojos (con confirmación y toast) en tabs Comentarios, Usuarios, Suscriptores.
+
+#### SEO técnico profesional
+- 🧭 **Sitemap index + 4 sub-sitemaps**:
+  - `/api/sitemap-index.xml` (master)
+  - `/api/sitemap-articles.xml` (todos los artículos publicados con lastmod y `xhtml:link hreflang`)
+  - `/api/sitemap-categories.xml` (5 categorías × 2 prefijos: `/categoria/x` y `/categorias/x`)
+  - `/api/sitemap-tags.xml` (todos los tags con ≥1 artículo, ruta `/tendencias/:slug`)
+  - `/api/sitemap-topics.xml` (5 pillar topics)
+- 🤖 **robots.txt** mejorado: bloquea `/admin`, `/entrar`, `/guardados`, `/api/admin/`, `/api/auth/`; lista los 6 sitemaps.
+- 📚 **Pillar pages** `/temas` y `/temas/:slug`:
+  - 5 entidades curadas: Jeffrey Epstein, Inteligencia Artificial, Deepfakes, CBDC y privacidad, Salud mental y redes.
+  - `GET /api/topics` y `GET /api/topics/:slug` devuelven artículos asociados por matching de tags.
+  - Cada pillar page: breadcrumb, H1, descripción, lista de artículos con FactBadge + read_time, 3 FAQs (`<details>` colapsables), JSON-LD `CollectionPage` + `FAQPage`, sección "Temas conectados".
+- 🍞 **BreadcrumbList JSON-LD** en SEO.jsx (prop `breadcrumbs`) — usado en `/articulo/:slug`, `/temas`, `/temas/:slug`, `/categorias`, `/tendencias/:slug`.
+- 🌐 **hreflang `es-ES` + `x-default`** en todas las páginas via SEO.jsx.
+- 🚫 **`noindex` prop** en SEO.jsx para páginas personales (/guardados ya lo usa).
+- 🗓️ **Fecha de actualización** visible en artículos cuando `updated_at != published_at`.
+- 🔗 **URLs SEO-friendly** registradas: `/categoria/:slug` (redirige a `/explorar?cat=`), `/tendencias/:slug` (filtra por tag), `/historias/:slug` (alias de tema).
+
+#### Make.com compatibilidad (regresión confirmada)
+- Todos los validators Pydantic de iteración 8 siguen funcionando: tags como string, factLevel "ANALYSIS", verificationLevel "75%", publish "true", body nulo.
+
+**Backlog priorizado P1**:
+- Sincronización guardados localStorage ↔ servidor cuando hay sesión
+- Componente visual "Realidad vs Viralidad" en artículos investigation/rumor
+- Highlights/anotaciones por párrafo
+- Sistema emocional/narrativo del internet por categoría
+- Bloques "Qué se sabe" / "Qué falta por verificar" desde Make.com (añadir campos `whatIsKnown[]` y `whatIsMissing[]` al schema)
+- FAQPage JSON-LD por artículo (añadir campo `faqs` al Make.com schema)
