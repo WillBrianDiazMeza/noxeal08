@@ -284,3 +284,47 @@ related articles, SEO (helmet, sitemap.xml, robots.txt), polish visual.
 - Sistema emocional/narrativo del internet por categoría
 - Bloques "Qué se sabe" / "Qué falta por verificar" desde Make.com (añadir campos `whatIsKnown[]` y `whatIsMissing[]` al schema)
 - FAQPage JSON-LD por artículo (añadir campo `faqs` al Make.com schema)
+
+
+### Iteración 10 (2026-05-18) ⭐ TRANSPARENCIA EDITORIAL + SYNC LECTURA
+**Tests**: backend 11/11 pytest (100%) · frontend 100% · `retest_needed: False` · action_items vacío
+
+#### Make.com schema ampliado (4 campos OPT-IN)
+- `faqs: List[{q, a}]` → bloque FAQ colapsable + JSON-LD `FAQPage` (rich snippets en Google)
+- `whatIsKnown: List[str]` → bloque verde "Qué se sabe" (hechos verificados, check verde)
+- `whatIsMissing: List[str]` → bloque amber "Qué falta por verificar" (incógnitas, marca `?`)
+- `realityVsVirality: List[{virality, reality}]` → tabla 2 columnas premium (viralidad tachada en rojo · realidad limpia en azul, responsive a 1 columna en móvil)
+
+Todos los campos tienen `field_validator` Pydantic que tolera null, strings sueltos y dicts con claves alternativas (`question/answer`, `myth/fact`, `viral/real`). Retrocompatible 100%: si el campo no existe, el bloque no se renderiza.
+
+#### Server-synced reading list
+- `GET /api/me/saved` — lista del usuario
+- `POST /api/me/saved/sync` — merge bidireccional localStorage ↔ servidor (registrado **antes** de `/{slug}` para evitar colisión)
+- `POST /api/me/saved/{slug}` — idempotente, 404 si slug no existe
+- `DELETE /api/me/saved/{slug}`
+- `ArticleEngagement` y `Guardados` sincronizan al detectar `user?.email`. Indicador `Cloud` (sincronizado) / `CloudOff` (solo local) en `/guardados`.
+
+#### Admin (Create + Edit modals)
+- 4 textareas nuevas: `what_is_known`, `what_is_missing`, `reality_vs_virality` (formato `viral :: real`), `faqs` (formato `Pregunta? :: Respuesta`).
+- Helpers `parseLines`, `parseFAQs`, `parseRvV` para convertir texto plano a arrays/objetos JSON antes de enviar al backend.
+- Backgrounds editoriales en cada textarea (verde/amber/gris) para reforzar el código visual del frontend.
+
+#### Make.com payload completo ahora soportado
+```json
+{
+  "title": "...", "content": "...", "category": "...", "tags": [...],
+  "factLevel": "investigation", "verificationLevel": 82,
+  "faqs": [{"q": "...", "a": "..."}, ...],
+  "whatIsKnown": ["hecho 1", "hecho 2"],
+  "whatIsMissing": ["incógnita 1", ...],
+  "realityVsVirality": [{"virality": "...", "reality": "..."}, ...]
+}
+```
+
+**Backlog priorizado restante**:
+- P1: Highlights / anotaciones por párrafo dentro del artículo (3 colores + nota personal)
+- P1: Dashboard premium (historial, intereses emocionales detectados, stats de lectura)
+- P2: Sistema emocional/narrativo por categoría (estado emocional del internet)
+- P2: Sugerencias post-lectura ("Narrativas similares", "La evolución de esta historia")
+- P2: Multi-idioma (ES/EN/FR/NL) con hreflang completo y routing
+- P2: Audio articles (TTS) + dark mode premium
