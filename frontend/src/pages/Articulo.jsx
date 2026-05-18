@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Tag, Maximize2, Minimize2 } from "lucide-react";
+import { ArrowLeft, Tag, Maximize2, Minimize2, Languages } from "lucide-react";
 import { api } from "@/lib/api";
+import { useLang, getCurrentLang } from "@/lib/i18n";
 import SEO from "@/components/SEO";
 import SocialShare from "@/components/SocialShare";
 import Comments from "@/components/Comments";
@@ -30,24 +31,26 @@ function formatDate(iso) {
 
 export default function Articulo() {
   const { slug } = useParams();
+  const { lang, t } = useLang();
   const [article, setArticle] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [focusMode, setFocusMode] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(false);
 
   useEffect(() => {
     setLoading(true);
     setArticle(null);
-    api.get(`/articles/${slug}`)
+    const effective = showOriginal ? "es" : lang;
+    api.get(`/articles/${slug}`, { params: effective !== "es" ? { lang: effective } : {} })
       .then(({ data }) => {
         setArticle(data);
-        // Fire-and-forget view tracking
         api.post(`/articles/${slug}/view`).catch(() => {});
       })
       .catch(() => setError("Artículo no encontrado"))
       .finally(() => setLoading(false));
     window.scrollTo(0, 0);
-  }, [slug]);
+  }, [slug, lang, showOriginal]);
 
   // Sync focus mode with body class + ESC to exit
   useEffect(() => {
@@ -116,6 +119,29 @@ export default function Articulo() {
               <span className="hidden sm:inline">{focusMode ? "Salir" : "Modo lectura"}</span>
             </button>
           </div>
+
+          {/* Translation banner (iter 12) */}
+          {article.lang && article.lang !== "es" && (
+            <div className="mb-8 flex items-center gap-3 flex-wrap text-[12.5px] px-4 py-2.5 rounded-full bg-[#eff6ff] border border-[#bfdbfe] text-[#1e3a8a]" data-testid="article-translation-banner">
+              <Languages size={13} strokeWidth={1.8} />
+              <span>{t("article.translated_notice")}</span>
+              <button
+                type="button"
+                onClick={() => setShowOriginal(true)}
+                className="underline hover:text-black"
+                data-testid="article-see-original"
+              >
+                {t("article.see_original")}
+              </button>
+            </div>
+          )}
+          {showOriginal && (
+            <div className="mb-8 text-[12.5px] text-[#86868b]">
+              <button onClick={() => setShowOriginal(false)} className="underline hover:text-black" data-testid="article-back-translated">
+                ← Volver a traducción
+              </button>
+            </div>
+          )}
           <div className="flex items-center gap-3 mb-5 flex-wrap" data-testid="article-meta-row">
             <span className="label-eyebrow" data-testid="article-category">{article.category}</span>
             {article.fact_level && <FactBadge level={article.fact_level} size="md" />}

@@ -45,7 +45,14 @@ export default function LanguageSwitcher({ compact = true }) {
             <li key={l.code}>
               <button
                 type="button"
-                onClick={() => { setLang(l.code); setOpen(false); }}
+                onClick={() => {
+                  setLang(l.code);
+                  setOpen(false);
+                  // Soft full reload to pick up cached translations for all server-rendered content
+                  if (typeof window !== "undefined") {
+                    setTimeout(() => window.location.reload(), 80);
+                  }
+                }}
                 className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-black/[0.04] ${
                   l.code === lang ? "text-black font-semibold" : "text-[#1a1a1a]"
                 }`}

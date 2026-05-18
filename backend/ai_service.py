@@ -150,6 +150,103 @@ async def generate_article_draft(topic: str) -> dict:
     return data
 
 
+LANG_NAMES = {"en": "English", "fr": "French", "nl": "Dutch", "es": "Spanish"}
+
+TRANSLATE_SYSTEM = """You are Noxeal's editorial translator.
+Translate Spanish editorial journalism into the target language, preserving:
+- voice (slow journalism, calm, precise, anti-clickbait)
+- structure (paragraphs separated by blank lines)
+- proper nouns, hashtags, URLs, brand names, emojis (DO NOT translate them)
+- punctuation style of the target language (e.g., French uses « guillemets »)
+
+Output STRICT JSON only: {"title": str, "excerpt": str, "body": [str, ...],
+"meta_description": str, "faqs": [{"q": str, "a": str}, ...],
+"what_is_known": [str, ...], "what_is_missing": [str, ...],
+"what_internet_believes": [str, ...],
+"reality_vs_virality": [{"virality": str, "reality": str}, ...],
+"narrative_evolution": [{"date": str, "event": str, "description": str}, ...]}.
+Keep arrays empty if input was empty. NEVER omit a key."""
+
+
+async def translate_article(article: dict, target_lang: str) -> dict:
+    """Translate an article dict to target_lang via Claude. Returns translated dict
+    with the same shape (title, excerpt, body, meta_description, transparency blocks)."""
+    if target_lang not in LANG_NAMES or target_lang == "es":
+        return {}
+    if not is_available():
+        raise RuntimeError("Translation unavailable: configure EMERGENT_LLM_KEY.")
+    payload = {
+        "title": article.get("title", ""),
+        "excerpt": article.get("excerpt", ""),
+        "body": article.get("body", []) or [],
+        "meta_description": article.get("meta_description", "") or article.get("excerpt", ""),
+        "faqs": article.get("faqs", []) or [],
+        "what_is_known": article.get("what_is_known", []) or [],
+        "what_is_missing": article.get("what_is_missing", []) or [],
+        "what_internet_believes": article.get("what_internet_believes", []) or [],
+        "reality_vs_virality": article.get("reality_vs_virality", []) or [],
+        "narrative_evolution": article.get("narrative_evolution", []) or [],
+    }
+    chat = LlmChat(
+        api_key=EMERGENT_KEY,
+        session_id=f"noxeal-tr-{target_lang}-{uuid.uuid4().hex[:6]}",
+        system_message=TRANSLATE_SYSTEM,
+    ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+    msg = UserMessage(text=(
+        f"Translate the following Noxeal article from Spanish to {LANG_NAMES[target_lang]}.\n"
+        f"Return JSON only with the SAME keys. Source JSON:\n\n{json.dumps(payload, ensure_ascii=False)}"
+    ))
+    raw = await chat.send_message(msg)
+    txt = _strip_json_fences(raw if isinstance(raw, str) else str(raw))
+    try:
+        out = json.loads(txt)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", txt, re.DOTALL)
+        if not m:
+            raise ValueError(f"Translation response not JSON: {txt[:200]}")
+        out = json.loads(m.group(0))
+    # Defensive cleanup
+    if not isinstance(out.get("body"), list):
+        out["body"] = [str(out.get("body", ""))] if out.get("body") else []
+    for k in ("faqs", "what_is_known", "what_is_missing", "what_internet_believes",
+              "reality_vs_virality", "narrative_evolution"):
+        if not isinstance(out.get(k), list):
+            out[k] = []
+    return out
+
+
+async def translate_strings(strings: list, target_lang: str) -> list:
+    """Batch-translate a list of short UI strings. Returns same length list."""
+    if target_lang not in LANG_NAMES or target_lang == "es":
+        return strings
+    if not is_available() or not strings:
+        return strings
+    chat = LlmChat(
+        api_key=EMERGENT_KEY,
+        session_id=f"noxeal-ui-tr-{target_lang}-{uuid.uuid4().hex[:6]}",
+        system_message=(
+            "You translate short UI labels. Output JSON only: "
+            '{"translations": [str, ...]} with the SAME length and order as the input. '
+            "Do NOT translate proper nouns, brand names, hashtags, URLs, or emojis."
+        ),
+    ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+    msg = UserMessage(text=(
+        f"Translate these UI strings from Spanish to {LANG_NAMES[target_lang]}. "
+        f"Return JSON {{translations:[...]}} preserving order.\n\n{json.dumps(strings, ensure_ascii=False)}"
+    ))
+    raw = await chat.send_message(msg)
+    txt = _strip_json_fences(raw if isinstance(raw, str) else str(raw))
+    try:
+        out = json.loads(txt)
+        arr = out.get("translations") if isinstance(out, dict) else out
+        if isinstance(arr, list) and len(arr) == len(strings):
+            return [str(x) for x in arr]
+    except Exception:
+        pass
+    return strings
+
+
+
 async def suggest_topics(focus: Optional[str] = None) -> list:
     if not is_available():
         raise RuntimeError("AI generation no disponible: instala emergentintegrations y configura EMERGENT_LLM_KEY.")

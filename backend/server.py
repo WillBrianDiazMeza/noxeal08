@@ -257,6 +257,29 @@ async def newsletter_list(_admin: dict = Depends(require_admin)):
 # ---------- Articles (public — only status=published) ----------
 PUBLIC_STATUS_FILTER = {"status": {"$ne": "draft"}}
 
+def _apply_cached_translation(article: dict, lang: str) -> dict:
+    """Overlay cached translation onto an article doc if present.
+    Lists never trigger fresh translations to stay fast and cheap."""
+    if lang in ("es", "", None):
+        article.pop("translations", None)
+        return article
+    translations = article.get("translations") or {}
+    cached = translations.get(lang)
+    if cached:
+        for k in ("title", "excerpt", "meta_description"):
+            if cached.get(k):
+                article[k] = cached[k]
+        for k in ("body", "faqs", "what_is_known", "what_is_missing",
+                  "what_internet_believes", "reality_vs_virality", "narrative_evolution"):
+            if isinstance(cached.get(k), list) and cached[k]:
+                article[k] = cached[k]
+        article["lang"] = lang
+    else:
+        article["lang"] = "es"
+    article.pop("translations", None)
+    return article
+
+
 @api_router.get("/articles")
 async def list_articles(
     category: Optional[str] = None,
@@ -264,6 +287,7 @@ async def list_articles(
     search: Optional[str] = None,
     trending: Optional[bool] = None,
     limit: int = Query(50, le=100),
+    lang: str = "es",
 ):
     q = dict(PUBLIC_STATUS_FILTER)
     if category:
@@ -280,26 +304,31 @@ async def list_articles(
             {"tags": {"$regex": search, "$options": "i"}},
         ]
     items = await db.articles.find(q, {"_id": 0}).sort("published_at", -1).to_list(limit)
-    return items
+    return [_apply_cached_translation(it, lang) for it in items]
 
 
 @api_router.get("/articles/featured")
-async def featured_articles():
+async def featured_articles(lang: str = "es"):
     """Returns hero (1) + side (3) + viral (4) + latest (6). Only published."""
     base = PUBLIC_STATUS_FILTER
     hero = await db.articles.find_one({**base, "hero": True}, {"_id": 0})
     side = await db.articles.find({**base, "side": True}, {"_id": 0}).limit(3).to_list(3)
     viral = await db.articles.find({**base, "viral": True}, {"_id": 0}).limit(4).to_list(4)
     latest = await db.articles.find(base, {"_id": 0}).sort("published_at", -1).limit(6).to_list(6)
-    return {"hero": hero, "side": side, "viral": viral, "latest": latest}
+    return {
+        "hero": _apply_cached_translation(hero, lang) if hero else None,
+        "side":   [_apply_cached_translation(x, lang) for x in side],
+        "viral":  [_apply_cached_translation(x, lang) for x in viral],
+        "latest": [_apply_cached_translation(x, lang) for x in latest],
+    }
 
 
 @api_router.get("/articles/most-read")
-async def most_read(limit: int = 5):
+async def most_read(limit: int = 5, lang: str = "es"):
     items = await db.articles.find(
         PUBLIC_STATUS_FILTER, {"_id": 0}
     ).sort("views", -1).limit(limit).to_list(limit)
-    return items
+    return [_apply_cached_translation(it, lang) for it in items]
 
 
 @api_router.get("/search")
@@ -346,11 +375,93 @@ async def search_articles(q: str = "", limit: int = 20, skip: int = 0):
 
 
 @api_router.get("/articles/{slug}")
-async def get_article(slug: str):
+async def get_article(slug: str, lang: str = "es"):
     article = await db.articles.find_one({"slug": slug, **PUBLIC_STATUS_FILTER}, {"_id": 0})
     if not article:
         raise HTTPException(status_code=404, detail="Artículo no encontrado")
+
+    # Auto-translate + cache for non-Spanish requests (iter 12)
+    if lang in ("en", "fr", "nl"):
+        translations = article.get("translations") or {}
+        cached = translations.get(lang)
+        if not cached and ai_service.is_available():
+            try:
+                cached = await ai_service.translate_article(article, lang)
+                if cached:
+                    cached["translated_at"] = datetime.now(timezone.utc).isoformat()
+                    await db.articles.update_one(
+                        {"slug": slug},
+                        {"$set": {f"translations.{lang}": cached}},
+                    )
+            except Exception as e:
+                logging.warning(f"translate {slug}→{lang} failed: {e}")
+                cached = None
+        if cached:
+            # Overlay translated fields on the original article shape
+            merged = dict(article)
+            for k in ("title", "excerpt", "meta_description"):
+                if cached.get(k):
+                    merged[k] = cached[k]
+            for k in ("body", "faqs", "what_is_known", "what_is_missing",
+                      "what_internet_believes", "reality_vs_virality",
+                      "narrative_evolution"):
+                if isinstance(cached.get(k), list) and cached[k]:
+                    merged[k] = cached[k]
+            merged["lang"] = lang
+            merged["has_original"] = True
+            merged.pop("translations", None)
+            return merged
+    # Default: original Spanish
+    article["lang"] = "es"
+    article.pop("translations", None)
     return article
+
+
+@api_router.post("/translate/strings")
+async def translate_ui_strings(payload: dict):
+    """Batch translate UI strings on demand. Frontend caches in localStorage.
+    Body: {"strings": [str, ...], "lang": "en|fr|nl"}.
+    Server keeps a soft cache too for cross-user reuse."""
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Payload inválido")
+    strings = payload.get("strings") or []
+    lang = (payload.get("lang") or "").strip().lower()
+    if lang not in ("en", "fr", "nl") or not isinstance(strings, list) or not strings:
+        return {"translations": strings}
+    # cap & sanitize
+    strings = [str(s)[:500] for s in strings[:200]]
+    # Use a deterministic cache key (string + lang)
+    out = []
+    to_translate = []
+    to_translate_idx = []
+    for i, s in enumerate(strings):
+        cached = await db.ui_translations.find_one({"lang": lang, "src": s}, {"_id": 0, "out": 1})
+        if cached and cached.get("out"):
+            out.append(cached["out"])
+        else:
+            out.append(None)
+            to_translate.append(s)
+            to_translate_idx.append(i)
+    if to_translate:
+        try:
+            new_outs = await ai_service.translate_strings(to_translate, lang)
+        except Exception as e:
+            logging.warning(f"ui translate batch failed: {e}")
+            new_outs = to_translate
+        for j, idx in enumerate(to_translate_idx):
+            translated = new_outs[j] if j < len(new_outs) else strings[idx]
+            out[idx] = translated
+            # Persist
+            try:
+                await db.ui_translations.update_one(
+                    {"lang": lang, "src": strings[idx]},
+                    {"$set": {"out": translated, "updated_at": datetime.now(timezone.utc).isoformat()},
+                     "$setOnInsert": {"created_at": datetime.now(timezone.utc).isoformat()}},
+                    upsert=True,
+                )
+            except Exception:
+                pass
+    return {"translations": out, "lang": lang}
 
 
 @api_router.post("/articles/by-slugs")
