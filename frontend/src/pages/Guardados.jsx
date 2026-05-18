@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Bookmark, Trash2 } from "lucide-react";
+import { Bookmark, Trash2, Cloud, CloudOff } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import SEO from "@/components/SEO";
 import FactBadge from "@/components/FactBadge";
+import { useAuth } from "@/contexts/AuthContext";
 
 const LS_SAVE = "noxeal_saved_articles";
 
@@ -28,11 +29,23 @@ function formatDate(iso) {
 }
 
 export default function Guardados() {
+  const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
-    const slugs = readSavedSlugs();
+    setLoading(true);
+    let slugs = readSavedSlugs();
+    // If logged in, sync with server first (merges local + remote, server is source of truth)
+    if (user && user.email) {
+      try {
+        const { data } = await api.post("/me/saved/sync", { slugs });
+        slugs = data.slugs || [];
+        writeSavedSlugs(slugs);
+      } catch {
+        // fallback to localStorage if sync fails
+      }
+    }
     if (!slugs.length) {
       setItems([]);
       setLoading(false);
@@ -41,7 +54,6 @@ export default function Guardados() {
     try {
       const { data } = await api.post("/articles/by-slugs", { slugs });
       setItems(Array.isArray(data) ? data : []);
-      // self-heal: clean dangling slugs (deleted/unpublished)
       const found = new Set((data || []).map((d) => d.slug));
       const cleaned = slugs.filter((s) => found.has(s));
       if (cleaned.length !== slugs.length) writeSavedSlugs(cleaned);
@@ -54,25 +66,32 @@ export default function Guardados() {
 
   useEffect(() => {
     load();
-    // Re-sync if user toggles save from another tab
     const onStorage = (e) => { if (e.key === LS_SAVE) load(); };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.email]);
 
-  const removeOne = (slug) => {
+  const removeOne = async (slug) => {
     const next = readSavedSlugs().filter((s) => s !== slug);
     writeSavedSlugs(next);
     setItems((arr) => arr.filter((a) => a.slug !== slug));
+    if (user && user.email) {
+      api.delete(`/me/saved/${slug}`).catch(() => {});
+    }
     toast.success("Eliminado de tu lista");
   };
 
-  const clearAll = () => {
+  const clearAll = async () => {
     if (!items.length) return;
     if (!window.confirm("¿Vaciar tu lista de lectura?")) return;
+    const slugs = readSavedSlugs();
     writeSavedSlugs([]);
     setItems([]);
+    if (user && user.email) {
+      // Fire-and-forget delete each on server
+      slugs.forEach((s) => api.delete(`/me/saved/${s}`).catch(() => {}));
+    }
     toast.success("Lista vaciada");
   };
 
@@ -91,9 +110,20 @@ export default function Guardados() {
             <h1 className="h-display text-4xl md:text-5xl lg:text-[56px] leading-[1.02]">
               Lista de lectura
             </h1>
-            <p className="text-base text-[#424245] mt-4 max-w-2xl">
-              Los artículos que guardaste se almacenan en este navegador. Sin cuentas, sin tracking.
-              Vuelve cuando tengas un momento para leer con calma.
+            <p className="text-base text-[#424245] mt-4 max-w-2xl flex items-center gap-2 flex-wrap">
+              {user && user.email ? (
+                <>
+                  <Cloud size={14} className="text-emerald-700" strokeWidth={2} />
+                  <span data-testid="guardados-sync-status">Sincronizado en tu cuenta · {user.name}</span>
+                </>
+              ) : (
+                <>
+                  <CloudOff size={14} className="text-[#86868b]" strokeWidth={2} />
+                  <span data-testid="guardados-local-status">
+                    Guardado solo en este navegador. <Link to="/entrar" className="underline hover:text-black">Inicia sesión</Link> para sincronizar entre dispositivos.
+                  </span>
+                </>
+              )}
             </p>
           </div>
           {items.length > 0 && (

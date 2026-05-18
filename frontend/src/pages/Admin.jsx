@@ -350,6 +350,10 @@ function EditArticleModal({ article, onClose, onSaved }) {
     source_url: article.source_url || "",
     status: article.status || "draft",
     author: article.author || "",
+    what_is_known: (article.what_is_known || []).join("\n"),
+    what_is_missing: (article.what_is_missing || []).join("\n"),
+    reality_vs_virality: (article.reality_vs_virality || []).map((r) => `${r.virality} :: ${r.reality}`).join("\n"),
+    faqs: (article.faqs || []).map((f) => `${f.q} :: ${f.a}`).join("\n"),
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -370,6 +374,10 @@ function EditArticleModal({ article, onClose, onSaved }) {
         source_url: form.source_url,
         status: form.status,
         author: form.author,
+        what_is_known: parseLines(form.what_is_known),
+        what_is_missing: parseLines(form.what_is_missing),
+        reality_vs_virality: parseRvV(form.reality_vs_virality),
+        faqs: parseFAQs(form.faqs),
       });
       toast.success("Cambios guardados");
       onSaved();
@@ -391,6 +399,29 @@ function EditArticleModal({ article, onClose, onSaved }) {
   );
 }
 
+/* Helpers to parse text-area-style editorial blocks */
+function parseLines(text) {
+  return (text || "").split("\n").map((s) => s.trim()).filter(Boolean);
+}
+function parseFAQs(text) {
+  return parseLines(text)
+    .filter((l) => l.includes("::"))
+    .map((l) => {
+      const [q, a] = l.split("::");
+      return { q: q.trim(), a: (a || "").trim() };
+    })
+    .filter((f) => f.q && f.a);
+}
+function parseRvV(text) {
+  return parseLines(text)
+    .filter((l) => l.includes("::"))
+    .map((l) => {
+      const [v, r] = l.split("::");
+      return { virality: v.trim(), reality: (r || "").trim() };
+    })
+    .filter((row) => row.virality && row.reality);
+}
+
 /* ============== CREATE MODAL (manual, CEO-authored) ============== */
 function CreateArticleModal({ onClose, onCreated }) {
   const [form, setForm] = useState({
@@ -406,6 +437,10 @@ function CreateArticleModal({ onClose, onCreated }) {
     source_url: "",
     status: "draft",
     author: "",
+    what_is_known: "",
+    what_is_missing: "",
+    reality_vs_virality: "",
+    faqs: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -433,6 +468,10 @@ function CreateArticleModal({ onClose, onCreated }) {
         source_url: form.source_url.trim(),
         author: form.author.trim(),
         status: overrideStatus || form.status,
+        what_is_known: parseLines(form.what_is_known),
+        what_is_missing: parseLines(form.what_is_missing),
+        reality_vs_virality: parseRvV(form.reality_vs_virality),
+        faqs: parseFAQs(form.faqs),
       });
       toast.success(`✓ Creado: "${data.title}" (${data.status})`);
       onCreated();
@@ -522,6 +561,29 @@ function ArticleFormFields({ form, setForm, prefix }) {
       <Field label="Cuerpo (separa párrafos con línea en blanco)">
         <textarea rows={16} className="w-full px-5 py-3 rounded-2xl bg-[#f5f5f7] outline-none resize-none font-mono text-[13px]" value={form.body} onChange={upd("body")} placeholder={"Primer párrafo de gancho.\n\nSegundo párrafo con contexto.\n\nTercer párrafo con análisis…"} data-testid={`${prefix}-body`} />
         <p className="text-xs text-[#86868b] mt-1">Tip: párrafos cortos, frases claras. Editorial Noxeal = pocos adjetivos, fuentes citadas, sin clickbait.</p>
+      </Field>
+
+      <div className="pt-4 border-t border-black/10">
+        <h3 className="font-semibold text-sm mb-1">Transparencia editorial (opcional)</h3>
+        <p className="text-xs text-[#86868b] mb-4">Estos bloques aparecen en el artículo y ayudan al SEO (FAQPage + CollectionPage JSON-LD). Si los dejas vacíos, no se muestran.</p>
+      </div>
+
+      <Field label="Qué se sabe (un hecho por línea)">
+        <textarea rows={4} className="w-full px-5 py-3 rounded-2xl bg-[#f0fdf4] border border-emerald-200 outline-none resize-none text-[14px]" value={form.what_is_known} onChange={upd("what_is_known")} placeholder={"Hecho verificado uno.\nHecho verificado dos.\nDocumento liberado el día X."} data-testid={`${prefix}-what-is-known`} />
+      </Field>
+
+      <Field label="Qué falta por verificar (una incógnita por línea)">
+        <textarea rows={4} className="w-full px-5 py-3 rounded-2xl bg-[#fffbeb] border border-amber-200 outline-none resize-none text-[14px]" value={form.what_is_missing} onChange={upd("what_is_missing")} placeholder={"Sin respuesta oficial sobre X.\nNo hay testimonios firmados sobre Y."} data-testid={`${prefix}-what-is-missing`} />
+      </Field>
+
+      <Field label='Realidad vs Viralidad (formato: "Lo que se dice :: Lo documentado")'>
+        <textarea rows={5} className="w-full px-5 py-3 rounded-2xl bg-[#f5f5f7] outline-none resize-none font-mono text-[12px]" value={form.reality_vs_virality} onChange={upd("reality_vs_virality")} placeholder={"Hay una lista negra confirmada :: Solo existen registros de vuelo, no una lista oficial\nTodos los famosos están implicados :: Solo los citados bajo juramento tienen evidencia"} data-testid={`${prefix}-rvv`} />
+        <p className="text-xs text-[#86868b] mt-1">Cada línea = una fila. Separa con <code>::</code> el viral de la realidad.</p>
+      </Field>
+
+      <Field label='FAQ del artículo (formato: "Pregunta? :: Respuesta")'>
+        <textarea rows={5} className="w-full px-5 py-3 rounded-2xl bg-[#f5f5f7] outline-none resize-none font-mono text-[12px]" value={form.faqs} onChange={upd("faqs")} placeholder={"¿Quién es Jeffrey Epstein? :: Financiero estadounidense acusado de tráfico…\n¿Qué hay del libro negro? :: Es una narrativa viral; los documentos reales son distintos."} data-testid={`${prefix}-faqs`} />
+        <p className="text-xs text-[#86868b] mt-1">Estas FAQs generan automáticamente JSON-LD FAQPage (Google muestra rich snippets).</p>
       </Field>
     </>
   );

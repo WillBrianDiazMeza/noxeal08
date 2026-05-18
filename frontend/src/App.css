@@ -235,6 +235,92 @@ body.nx-focus-on .nx-focus-toggle {
 .nx-skeleton.h-4 { height: 16px; }
 .nx-skeleton.h-12 { height: 48px; }
 
+/* ───────── Editorial Transparency Blocks (iter 10) ───────── */
+.nx-transparency-block {
+  border-radius: 16px;
+  padding: 22px 24px;
+  margin: 32px 0;
+  border: 1px solid;
+}
+.nx-known {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.nx-missing {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+/* Reality vs Virality — premium 2-col table */
+.nx-rvv-block {
+  margin: 40px 0;
+  padding: 28px 0 0 0;
+  border-top: 1px solid rgba(0,0,0,0.08);
+}
+.nx-rvv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(0,0,0,0.08);
+}
+.nx-rvv-header {
+  padding: 16px 22px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+.nx-rvv-virality {
+  background: linear-gradient(180deg, #fff1f2 0%, #ffe4e6 100%);
+}
+.nx-rvv-reality {
+  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+  border-left: 1px solid rgba(0,0,0,0.08);
+}
+.nx-rvv-cell {
+  padding: 18px 22px;
+  font-size: 15px;
+  line-height: 1.6;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.nx-rvv-cell:last-of-type,
+.nx-rvv-grid > .contents:last-child .nx-rvv-cell {
+  border-bottom: none;
+}
+.nx-rvv-virality-cell {
+  background: #fffafa;
+  color: #5b1d1d;
+  text-decoration: line-through;
+  text-decoration-color: rgba(190, 18, 60, 0.35);
+  text-decoration-thickness: 1.5px;
+}
+.nx-rvv-reality-cell {
+  background: #fafcff;
+  color: #0f1f3a;
+  font-weight: 500;
+  border-left: 1px solid rgba(0,0,0,0.06);
+}
+@media (max-width: 640px) {
+  .nx-rvv-grid { grid-template-columns: 1fr; }
+  .nx-rvv-reality, .nx-rvv-reality-cell { border-left: none; border-top: 1px solid rgba(0,0,0,0.08); }
+}
+
+/* FAQ block at end of article */
+.nx-faq-block {
+  margin: 56px 0 24px 0;
+  padding: 32px 0 0 0;
+  border-top: 1px solid rgba(0,0,0,0.08);
+}
+.nx-faq-item {
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.nx-faq-item:last-child { border-bottom: none; }
+.nx-faq-item summary::-webkit-details-marker { display: none; }
+.nx-faq-item[open] summary { color: var(--nx-blue); }
+
 /* Mobile ticker tweak */
 @media (max-width: 640px) {
   .nx-ticker-inner { height: 32px; }

@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 10 full-stack test of Noxeal — editorial transparency blocks (faqs, what_is_known, what_is_missing, reality_vs_virality) on Make.com POST /api/articles, admin manual + ArticleUpdate; server-synced reading list (/api/me/saved GET, POST/{slug}, DELETE/{slug}, POST /sync). Backend: 11/11 iter10 pytest pass (100%, ~7s). Frontend: 100% — article page /articulo/test-iter10-make-full-c6c1a8 renders all 4 transparency testids (article-what-is-known, article-what-is-missing, article-reality-vs-virality, article-faq), JSON-LD head contains exactly 4 types ['NewsArticle','NewsMediaOrganization','BreadcrumbList','FAQPage']; RvV table shows 'LO QUE SE DICE / VIRALIZA' + 'LO QUE ESTÁ DOCUMENTADO' headers with rvv-row-0 ('Lo viral dice X' / 'La realidad es Y'); 2 FAQ <details> items article-faq-0/1. Regression on test-iter10-make-old-3815a2 (no transparency fields): all 4 blocks absent + FAQPage NOT in JSON-LD. /guardados unauth: guardados-local-status shows 'Guardado solo en este navegador. Inicia sesión para sincronizar entre dispositivos.' with CloudOff icon. /guardados authed (noxael18@gmail.com): guardados-sync-status shows 'Sincronizado en tu cuenta · Noxael' with Cloud icon. ArticleEngagement on transparency article while authed: clicking article-save-btn triggers POST /api/me/saved/{slug}; clicking again triggers DELETE /api/me/saved/{slug} — both observed in network. Admin /admin → Nuevo artículo modal exposes create-what-is-known, create-what-is-missing, create-rvv, create-faqs textareas. Edit modal on existing iter10 article pre-fills edit-what-is-known ('k1\\nk2'), edit-what-is-missing ('m1'), edit-rvv ('V1 :: R1'), edit-faqs ('Q1? :: A1'). Backend: POST /api/articles with full new payload persists as faqs/what_is_known/what_is_missing/reality_vs_virality; coercion handles faqs:null + whatIsKnown:'string' (→ ['string']) + realityVsVirality:[{}] (filtered to []); RvV accepts both {virality,reality} and {viral,fact} key variants. POST /api/admin/articles/manual with the 4 fields persists. PUT /api/admin/articles/{slug} updates all 4 fields (ArticleUpdate regression). /api/me/saved: 401 unauth; 200 authed empty; POST {slug} idempotent (no dup in server array); 404 on bad slug; DELETE 200; /sync filters fakes, merges local-first, accepts empty {} body; route /me/saved/sync registered BEFORE catch-all {slug} so no collision (returns 'slugs' shape, not 'slug' shape).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration10.py",
+    "/app/test_reports/pytest/iter10_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Route ordering in server.py is correct: /me/saved/sync is defined BEFORE /me/saved/{slug}, avoiding the catch-all collision risk noted in the review request. Verified by hitting /sync and getting 200 with 'slugs' field (not 404 from the {slug} validator).",
+    "Make.com Pydantic validators (_coerce_list, _coerce_faqs, _coerce_rvv) correctly handle null, single strings, empty dicts, and key variants ({virality|viral|myth}/{reality|fact|real}). Bullet caps at 10 (whatIsKnown/whatIsMissing) and 8 (RvV) and 10 (faqs) are sensible defensive limits.",
+    "user_saved.update_one uses $pull then $push with $position:0 — this gives a clean newest-first order but executes 2 round trips per add; for a free reading list it's fine, but a single bulkWrite or arrayFilter would shave a roundtrip.",
+    "POST /api/me/saved/sync stores {user_id, slugs, updated_at, created_at} with proper upsert + $setOnInsert; cap at 200 slugs prevents abuse — good.",
+    "ArticleEngagement uses useAuth and only fires server calls when user?.email exists — anonymous users still get pure-localStorage UX, exactly as specified.",
+    "FAQPage JSON-LD is emitted only when faqs.length > 0 (verified: old article has only 3 LD types, full article has 4 including FAQPage). Schema.org compliant.",
+    "RvV table uses native CSS grid 2-cols, with red strikethrough on virality side and blue on reality side per the request — accessible plain text content for SEO.",
+    "Admin edit-rvv / edit-faqs use the '::' separator parser — this is fragile if the user types '::' inside the text. Consider a JSON-input alternative or a richer key/value UI for the admin in a future iteration. Low priority since admin is the only user.",
+    "Test articles TEST_iter10_* (6 created) remain in DB — admin can purge from /admin if desired."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration10.py (NEW — 11 pytest tests, all pass)",
+    "/app/test_reports/pytest/iter10_results.xml (NEW)",
+    "/app/test_reports/iteration_10.json (this report)"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11 iter10 pytest)",
+    "frontend": "100% — 4 transparency testids on full article + JSON-LD FAQPage; absent on regression article + no FAQPage; guardados Cloud/CloudOff indicators both states; bookmark POST+DELETE network calls verified; admin create modal 4 new testids; admin edit modal 4 testids pre-filled with correct values"
+  },
+  "test_credentials": "noxael18@gmail.com / Noxeal2026! (verified). Make.com X-API-Key noxeal-make-7f3a9b2c8d4e5f6a1b9c3d8e7f2a5b6c (verified).",
+  "seed_data_creation": "Created via Make.com endpoint: TEST_iter10_make_old_*, TEST_iter10_make_full_*, TEST_iter10_make_coerce_*, TEST_iter10_rvv_variants_*. Via admin manual: TEST_iter10_manual_tr_*, TEST_iter10_upd_tr_*. Total 6 TEST_iter10_* published articles remain — main agent can purge via /admin if desired. No production data modified.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_iteration10.py -v — 11 tests, ~7s. Admin = noxael18@gmail.com / Noxeal2026!. MAKE_KEY = noxeal-make-7f3a9b2c8d4e5f6a1b9c3d8e7f2a5b6c. Article with all 4 transparency blocks: /articulo/test-iter10-make-full-c6c1a8. Article WITHOUT transparency (regression): /articulo/test-iter10-make-old-3815a2. Frontend testids: article-what-is-known, article-what-is-missing, article-reality-vs-virality (with rvv-row-N children), article-faq (with article-faq-N children). Admin create modal: create-what-is-known, create-what-is-missing, create-rvv, create-faqs. Admin edit modal: edit-what-is-known, edit-what-is-missing, edit-rvv, edit-faqs. Edit button testid is `edit-{slug}` (NOT edit-article-btn-*). /guardados testids: guardados-sync-status (authed), guardados-local-status (unauth). ArticleEngagement save btn: article-save-btn — fires POST/DELETE /api/me/saved/{slug} when user logged in. Backend /me/saved endpoints: GET, POST /sync (must precede /{slug}), POST /{slug} (idempotent, 404 if slug not published), DELETE /{slug}.",
+  "rca of the issue": "No bugs found. All 26 review-request bullet points verified pass: backend regression, full transparency persistence, null/string/empty-dict coercion, RvV key variants, admin manual & PUT update, /me/saved auth+CRUD+idempotent+404+sync+empty-body+no-collision, frontend 4 blocks render+regression, JSON-LD FAQPage, RvV table headers, FAQ collapsibles, guardados Cloud/CloudOff indicators, bookmark POST/DELETE network, admin create+edit 4 textareas. Iteration 10 ready to ship."
+}

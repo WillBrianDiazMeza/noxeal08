@@ -370,6 +370,72 @@ async def articles_by_slugs(payload: dict):
     return [by_slug[s] for s in slugs if s in by_slug]
 
 
+# ---------- Saved articles per user (server-synced reading list) ----------
+@api_router.get("/me/saved")
+async def my_saved(user: dict = Depends(get_current_user)):
+    """Return the user's saved slug list (in save order, newest first)."""
+    doc = await db.user_saved.find_one({"user_id": user["id"]}, {"_id": 0, "slugs": 1})
+    return {"slugs": (doc.get("slugs") if doc else []) or []}
+
+
+@api_router.post("/me/saved/sync")
+async def my_saved_sync(payload: dict, user: dict = Depends(get_current_user)):
+    """Merge localStorage list with server list. Body: {"slugs": [...]}.
+    Server keeps the union, with localStorage items at the top (most recent intent)."""
+    local = payload.get("slugs") if isinstance(payload, dict) else []
+    if not isinstance(local, list):
+        local = []
+    local_clean = [str(s).strip() for s in local if s][:200]
+    # Verify which still exist & published
+    if local_clean:
+        valid = await db.articles.find(
+            {"slug": {"$in": local_clean}, **PUBLIC_STATUS_FILTER}, {"_id": 0, "slug": 1}
+        ).to_list(len(local_clean))
+        valid_set = {a["slug"] for a in valid}
+        local_clean = [s for s in local_clean if s in valid_set]
+    doc = await db.user_saved.find_one({"user_id": user["id"]}, {"_id": 0, "slugs": 1})
+    server_slugs = (doc.get("slugs") if doc else []) or []
+    # Union: local first (recent intent), then server-only ones
+    seen = set()
+    merged = []
+    for s in local_clean + server_slugs:
+        if s not in seen:
+            seen.add(s); merged.append(s)
+    merged = merged[:200]
+    await db.user_saved.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"slugs": merged, "updated_at": datetime.now(timezone.utc).isoformat()},
+         "$setOnInsert": {"user_id": user["id"], "created_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"ok": True, "slugs": merged}
+
+
+@api_router.post("/me/saved/{slug}")
+async def my_saved_add(slug: str, user: dict = Depends(get_current_user)):
+    """Add a slug to the user's saved list. Idempotent."""
+    article = await db.articles.find_one({"slug": slug, **PUBLIC_STATUS_FILTER}, {"_id": 0, "slug": 1})
+    if not article:
+        raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    await db.user_saved.update_one(
+        {"user_id": user["id"]},
+        {"$pull": {"slugs": slug}},  # remove first to push at front
+    )
+    await db.user_saved.update_one(
+        {"user_id": user["id"]},
+        {"$push": {"slugs": {"$each": [slug], "$position": 0}},
+         "$setOnInsert": {"user_id": user["id"], "created_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"ok": True, "slug": slug}
+
+
+@api_router.delete("/me/saved/{slug}")
+async def my_saved_remove(slug: str, user: dict = Depends(get_current_user)):
+    await db.user_saved.update_one({"user_id": user["id"]}, {"$pull": {"slugs": slug}})
+    return {"ok": True}
+
+
 @api_router.get("/articles/{slug}/related")
 async def related_articles(slug: str, limit: int = 3):
     """Find related articles by shared tags, then by category, excluding the same slug."""
@@ -754,8 +820,13 @@ class MakeArticleIn(BaseModel):
     factLevel: Optional[str] = "analysis"  # confirmed | analysis | opinion | investigation | rumor | story
     # 0-100 confidence in the facts of the piece. Defaults heuristically per factLevel.
     verificationLevel: Optional[int] = None
+    # NEW (iter 10): editorial transparency blocks
+    faqs: Optional[List[dict]] = Field(default_factory=list)            # [{q, a}]
+    whatIsKnown: Optional[List[str]] = Field(default_factory=list)      # bullet list of confirmed facts
+    whatIsMissing: Optional[List[str]] = Field(default_factory=list)    # bullet list of unverified gaps
+    realityVsVirality: Optional[List[dict]] = Field(default_factory=list)  # [{virality, reality}]
 
-    @field_validator("body", "tags", mode="before")
+    @field_validator("body", "tags", "whatIsKnown", "whatIsMissing", mode="before")
     @classmethod
     def _coerce_list(cls, v):
         """Make.com sometimes sends a single string where we expect a list,
@@ -768,6 +839,44 @@ class MakeArticleIn(BaseModel):
         if isinstance(v, list):
             return [str(x).strip() for x in v if x is not None and str(x).strip()]
         return []
+
+    @field_validator("faqs", mode="before")
+    @classmethod
+    def _coerce_faqs(cls, v):
+        """Accept null, list of dicts, or list of strings like 'Q? :: A'."""
+        if v is None or v == "":
+            return []
+        if not isinstance(v, list):
+            return []
+        out = []
+        for item in v:
+            if isinstance(item, dict):
+                q = str(item.get("q") or item.get("question") or "").strip()
+                a = str(item.get("a") or item.get("answer") or "").strip()
+                if q and a:
+                    out.append({"q": q[:200], "a": a[:1000]})
+            elif isinstance(item, str) and "::" in item:
+                q, a = item.split("::", 1)
+                if q.strip() and a.strip():
+                    out.append({"q": q.strip()[:200], "a": a.strip()[:1000]})
+        return out[:10]
+
+    @field_validator("realityVsVirality", mode="before")
+    @classmethod
+    def _coerce_rvv(cls, v):
+        """Accept null, list of {virality, reality} dicts."""
+        if v is None or v == "":
+            return []
+        if not isinstance(v, list):
+            return []
+        out = []
+        for item in v:
+            if isinstance(item, dict):
+                vir = str(item.get("virality") or item.get("viral") or item.get("myth") or "").strip()
+                real = str(item.get("reality") or item.get("fact") or item.get("real") or "").strip()
+                if vir and real:
+                    out.append({"virality": vir[:300], "reality": real[:300]})
+        return out[:8]
 
     @field_validator("excerpt", "content", "meta_description", "seoTitle",
                      "seoDescription", "image", "image_prompt", "sourceUrl",
@@ -930,6 +1039,15 @@ async def make_create_article(data: MakeArticleIn, _ok: bool = Depends(require_m
         # Editorial classification
         "fact_level": fact_level,
         "verification_level": verification_level,
+        # Editorial transparency blocks (iter 10)
+        "faqs": data.faqs or [],
+        "what_is_known": [_sanitize(s)[:400] for s in (data.whatIsKnown or [])][:10],
+        "what_is_missing": [_sanitize(s)[:400] for s in (data.whatIsMissing or [])][:10],
+        "reality_vs_virality": [
+            {"virality": _sanitize(r.get("virality", ""))[:300],
+             "reality":  _sanitize(r.get("reality", ""))[:300]}
+            for r in (data.realityVsVirality or [])
+        ][:8],
     }
     await db.articles.insert_one(doc)
     if status == "published":
@@ -1220,6 +1338,11 @@ class ArticleUpdate(BaseModel):
     side: Optional[bool] = None
     viral: Optional[bool] = None
     trending: Optional[bool] = None
+    # Editorial transparency blocks
+    faqs: Optional[List[dict]] = None
+    what_is_known: Optional[List[str]] = None
+    what_is_missing: Optional[List[str]] = None
+    reality_vs_virality: Optional[List[dict]] = None
 
 
 class ArticleCreateManual(BaseModel):
@@ -1236,8 +1359,13 @@ class ArticleCreateManual(BaseModel):
     fact_level: str = "analysis"
     verification_level: Optional[int] = None
     status: str = "draft"                                 # "draft" | "published"
+    # Editorial transparency blocks (iter 10)
+    faqs: List[dict] = Field(default_factory=list)
+    what_is_known: List[str] = Field(default_factory=list)
+    what_is_missing: List[str] = Field(default_factory=list)
+    reality_vs_virality: List[dict] = Field(default_factory=list)
 
-    @field_validator("body", "tags", mode="before")
+    @field_validator("body", "tags", "what_is_known", "what_is_missing", mode="before")
     @classmethod
     def _coerce_list(cls, v):
         if v is None or v == "":
@@ -1247,6 +1375,38 @@ class ArticleCreateManual(BaseModel):
         if isinstance(v, list):
             return [str(x).strip() for x in v if x is not None and str(x).strip()]
         return []
+
+    @field_validator("faqs", mode="before")
+    @classmethod
+    def _coerce_faqs(cls, v):
+        if v is None or v == "":
+            return []
+        if not isinstance(v, list):
+            return []
+        out = []
+        for item in v:
+            if isinstance(item, dict):
+                q = str(item.get("q") or item.get("question") or "").strip()
+                a = str(item.get("a") or item.get("answer") or "").strip()
+                if q and a:
+                    out.append({"q": q[:200], "a": a[:1000]})
+        return out[:10]
+
+    @field_validator("reality_vs_virality", mode="before")
+    @classmethod
+    def _coerce_rvv(cls, v):
+        if v is None or v == "":
+            return []
+        if not isinstance(v, list):
+            return []
+        out = []
+        for item in v:
+            if isinstance(item, dict):
+                vir = str(item.get("virality") or item.get("viral") or "").strip()
+                real = str(item.get("reality") or item.get("fact") or "").strip()
+                if vir and real:
+                    out.append({"virality": vir[:300], "reality": real[:300]})
+        return out[:8]
 
 
 CATEGORY_TO_SLUG = {
@@ -1388,6 +1548,15 @@ async def admin_create_manual(data: ArticleCreateManual, admin: dict = Depends(r
         "viral_score": 0, "controversy_score": 0,
         "fact_level": fact_level,
         "verification_level": verification_level,
+        # Editorial transparency blocks (iter 10)
+        "faqs": data.faqs or [],
+        "what_is_known": [_sanitize(s)[:400] for s in (data.what_is_known or [])][:10],
+        "what_is_missing": [_sanitize(s)[:400] for s in (data.what_is_missing or [])][:10],
+        "reality_vs_virality": [
+            {"virality": _sanitize(r.get("virality", ""))[:300],
+             "reality":  _sanitize(r.get("reality", ""))[:300]}
+            for r in (data.reality_vs_virality or [])
+        ][:8],
     }
     await db.articles.insert_one(doc)
     if status == "published":

@@ -10,6 +10,12 @@ import ArticleEngagement from "@/components/ArticleEngagement";
 import FactBadge from "@/components/FactBadge";
 import VerificationBar from "@/components/VerificationBar";
 import ReadingProgress from "@/components/ReadingProgress";
+import {
+  WhatIsKnownBlock,
+  WhatIsMissingBlock,
+  RealityVsViralityBlock,
+  ArticleFAQ,
+} from "@/components/ArticleTransparency";
 
 function formatDate(iso) {
   if (!iso) return "";
@@ -164,6 +170,13 @@ export default function Articulo() {
           {(article.body || []).map((p, i) => (<p key={i}>{p}</p>))}
         </div>
 
+        {/* Editorial transparency blocks (iter 10) — render only if data exists */}
+        <div className="max-w-3xl mx-auto px-5 lg:px-0">
+          {article.what_is_known?.length > 0 && <WhatIsKnownBlock items={article.what_is_known} />}
+          {article.what_is_missing?.length > 0 && <WhatIsMissingBlock items={article.what_is_missing} />}
+          {article.reality_vs_virality?.length > 0 && <RealityVsViralityBlock items={article.reality_vs_virality} />}
+        </div>
+
         {/* Source disclosure (for Make.com-imported articles) */}
         {article.source_url && (
           <div className="max-w-3xl mx-auto px-5 lg:px-0 mt-8 text-sm text-[#86868b] border-t border-black/10 pt-6" data-testid="article-source">
@@ -193,6 +206,13 @@ export default function Articulo() {
         <div className="max-w-3xl mx-auto px-5 lg:px-0">
           <SocialShare url={`/articulo/${article.slug}`} title={article.title} excerpt={article.excerpt} />
         </div>
+
+        {/* FAQ + FAQPage JSON-LD (iter 10) */}
+        {article.faqs?.length > 0 && (
+          <div className="max-w-3xl mx-auto px-5 lg:px-0">
+            <ArticleFAQ faqs={article.faqs} articleTitle={article.title} />
+          </div>
+        )}
 
         {/* Comments */}
         <Comments slug={article.slug} />

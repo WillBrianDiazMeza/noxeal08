@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Heart, Bookmark, Eye, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 const LS_LIKE = "noxeal_liked_articles";
 const LS_SAVE = "noxeal_saved_articles";
@@ -15,6 +16,7 @@ const writeSet = (key, set) => {
 };
 
 export default function ArticleEngagement({ slug, initialLikes = 0, views = 0, commentsCount = 0 }) {
+  const { user } = useAuth();
   const [likes, setLikes] = useState(initialLikes);
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -24,6 +26,22 @@ export default function ArticleEngagement({ slug, initialLikes = 0, views = 0, c
     setSaved(readSet(LS_SAVE).has(slug));
     setLikes(initialLikes);
   }, [slug, initialLikes]);
+
+  // When user logs in (or article changes for logged-in user) sync server <-> localStorage
+  useEffect(() => {
+    if (!user || !user.email) return;
+    let cancelled = false;
+    const local = Array.from(readSet(LS_SAVE));
+    api.post("/me/saved/sync", { slugs: local })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const merged = new Set(data.slugs || []);
+        writeSet(LS_SAVE, merged);
+        setSaved(merged.has(slug));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [user, slug]);
 
   const toggleLike = async () => {
     const set = readSet(LS_LIKE);
@@ -43,9 +61,17 @@ export default function ArticleEngagement({ slug, initialLikes = 0, views = 0, c
     if (saved) {
       set.delete(slug); writeSet(LS_SAVE, set); setSaved(false);
       toast.success("Eliminado de tu lista");
+      if (user && user.email) {
+        api.delete(`/me/saved/${slug}`).catch(() => {});
+      }
     } else {
       set.add(slug); writeSet(LS_SAVE, set); setSaved(true);
-      toast.success("Guardado en tu lista (local)");
+      toast.success(user && user.email
+        ? "Guardado en tu lista (sincronizada)"
+        : "Guardado en tu lista (local)");
+      if (user && user.email) {
+        api.post(`/me/saved/${slug}`).catch(() => {});
+      }
     }
   };
 
