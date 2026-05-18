@@ -112,7 +112,9 @@ X-API-Key: <valor de MAKE_API_KEY en backend/.env>
   "seoDescription": "Descripción SEO emocional y viral",
   "status": "published",
   "sourceUrl": "https://fuente-original.com/articulo",
-  "authorName": "Noxeal AI"
+  "authorName": "Noxeal AI",
+  "factLevel": "analysis",
+  "verificationLevel": 78
 }
 ```
 
@@ -130,8 +132,18 @@ X-API-Key: <valor de MAKE_API_KEY en backend/.env>
 | `status` | `"published"` \| `"draft"` | ❌ | Default `"published"` (vía `publish=true`) |
 | `sourceUrl` | string | ❌ | Aparece como "Fuente original" al final del artículo |
 | `authorName` | string | ❌ | Default `"Noxeal AI"` |
+| `factLevel` | enum | ❌ | `confirmed | analysis | opinion | investigation | rumor | story`. Default `analysis`. Determina badge editorial y banner visual. |
+| `verificationLevel` | int (0-100) | ❌ | Confidence factual. Default heurístico por factLevel (confirmed=92, analysis=68, story=55, opinion=45, rumor=20, investigation=78). |
 
 *Necesitas al menos uno de `content` o `body`.
+
+### Sistema de tipos editoriales (NEW)
+- `confirmed` 🟢 — Hechos verificados (badge verde, sin advertencia)
+- `analysis` 🔵 — Lectura editorial sobre tendencia (badge azul, el más frecuente)
+- `opinion` ⚫ — Punto de vista declarado (badge gris)
+- `investigation` 🟡 — Trabajo premium con fuentes (badge dorado, fuente "premium" en serif bold)
+- `rumor` 🔴 — Sin confirmar, **muestra banner rojo de advertencia** + barra de verificación baja
+- `story` 🟣 — Narrativa humana (título en **itálica**)
 
 ### Respuesta exitosa
 ```json

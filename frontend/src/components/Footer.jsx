@@ -60,14 +60,22 @@ export default function Footer() {
         </div>
 
         <div className="lg:col-span-2">
-          <div className="label-eyebrow-dark mb-4">Legal</div>
+          <div className="label-eyebrow-dark mb-4">Editorial</div>
           <ul className="space-y-2 text-[14px] text-white/70">
+            <li><Link to="/editorial" className="hover:text-white" data-testid="footer-link-editorial">Política editorial</Link></li>
+            <li><Link to="/transparencia-ia" className="hover:text-white" data-testid="footer-link-transparency">Transparencia IA</Link></li>
+            <li><Link to="/correcciones" className="hover:text-white" data-testid="footer-link-corrections">Correcciones</Link></li>
+            <li><Link to="/disclaimer" className="hover:text-white" data-testid="footer-link-disclaimer">Aviso editorial</Link></li>
             <li><Link to="/about" className="hover:text-white" data-testid="footer-link-about">Sobre Noxeal</Link></li>
             <li><Link to="/contact" className="hover:text-white" data-testid="footer-link-contacto">Contacto</Link></li>
+          </ul>
+        </div>
+        <div className="lg:col-span-2">
+          <div className="label-eyebrow-dark mb-4">Legal</div>
+          <ul className="space-y-2 text-[14px] text-white/70">
             <li><Link to="/privacy" className="hover:text-white" data-testid="footer-link-privacidad">Privacidad</Link></li>
             <li><Link to="/cookies" className="hover:text-white" data-testid="footer-link-cookies">Cookies</Link></li>
             <li><Link to="/terms" className="hover:text-white" data-testid="footer-link-terminos">Términos</Link></li>
-            <li><Link to="/disclaimer" className="hover:text-white" data-testid="footer-link-disclaimer">Aviso editorial</Link></li>
           </ul>
         </div>
 

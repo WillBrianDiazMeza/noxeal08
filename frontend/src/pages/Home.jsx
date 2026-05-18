@@ -7,6 +7,7 @@ import { ArticleCard, HeroEditorialCard } from "@/components/ArticleCard";
 import ViralCard from "@/components/ViralCard";
 import NewsletterSection from "@/components/NewsletterSection";
 import LiveCounter from "@/components/LiveCounter";
+import LazySection from "@/components/LazySection";
 
 export default function Home() {
   const [data, setData] = useState({ hero: null, side: [], viral: [], latest: [] });
@@ -212,6 +213,7 @@ export default function Home() {
       </section>
 
       {/* ========== POLÉMICOS + MÁS COMENTADOS (debate & friction) ========== */}
+      <LazySection minHeight={400} testId="lazy-debate">
       {(controversial.length > 0 || mostCommented.length > 0) && (
         <section className="py-24 border-t border-black/5" data-testid="debate-section">
           <div className="max-w-7xl mx-auto px-5 lg:px-8">
@@ -277,6 +279,9 @@ export default function Home() {
       )}
 
       {/* ========== LATEST ARTICLES ========== */}
+      </LazySection>
+
+      <LazySection minHeight={500} testId="lazy-latest">
       <section className="py-24" data-testid="latest-section">
         <div className="max-w-7xl mx-auto px-5 lg:px-8">
           <div className="flex items-end justify-between mb-12">
@@ -323,20 +328,23 @@ export default function Home() {
           </div>
         </section>
       )}
+      </LazySection>
 
+      <LazySection minHeight={300} testId="lazy-newsletter">
       <NewsletterSection />
+      </LazySection>
     </main>
   );
 }
 
 function SkeletonHero() {
   return (
-    <div className="animate-pulse">
-      <div className="h-3 w-32 bg-[#eaeaee] mb-4 rounded" />
-      <div className="h-12 w-3/4 bg-[#eaeaee] mb-3 rounded" />
-      <div className="h-12 w-1/2 bg-[#eaeaee] mb-6 rounded" />
-      <div className="h-4 w-full bg-[#eaeaee] mb-2 rounded" />
-      <div className="h-4 w-5/6 bg-[#eaeaee] rounded" />
+    <div data-testid="skeleton-hero">
+      <div className="nx-skeleton h-3 w-32 mb-4" />
+      <div className="nx-skeleton h-12 w-3/4 mb-3" />
+      <div className="nx-skeleton h-12 w-1/2 mb-6" />
+      <div className="nx-skeleton h-4 w-full mb-2" />
+      <div className="nx-skeleton h-4 w-5/6" />
     </div>
   );
 }

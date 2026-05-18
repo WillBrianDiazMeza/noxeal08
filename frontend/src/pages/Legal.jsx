@@ -46,9 +46,53 @@ export const CONTACT_BODY = [
   "Respondemos en menos de 48 horas hábiles. Si tu mensaje es sobre un artículo específico, incluye el enlace y el motivo.",
 ];
 
+export const EDITORIAL_BODY = [
+  "Noxeal es una plataforma editorial premium. Nuestro trabajo no es ser los primeros en publicar — es explicar mejor que nadie cómo internet, las emociones colectivas, las tendencias virales y el poder moldean la realidad moderna.",
+  "Toda pieza publicada en Noxeal lleva una etiqueta editorial explícita que declara su naturaleza epistemológica:",
+  "• Confirmado — hechos verificados con fuentes primarias contrastadas. Cuando decimos que algo pasó, ha pasado.",
+  "• Análisis — interpretación editorial sobre un tema o tendencia. Mezcla hechos verificados con lectura crítica. Es nuestro estado más frecuente.",
+  "• Opinión — punto de vista del autor, declarado como tal. No pretende ser noticia.",
+  "• Investigación — trabajo largo de archivo y cross-referencing. Cobertura premium con todas las fuentes citadas.",
+  "• Rumor — información viral SIN confirmar. La publicamos porque entender qué circula importa, pero nunca afirmamos un rumor como hecho. Lleva siempre banner de advertencia.",
+  "• Historia — narrativa humana, contexto y emoción. Lectura larga editorial.",
+  "Además, cada pieza muestra un nivel de verificación del 0 al 100% que indica cuánta confianza tenemos en los hechos que afirma. Es transparencia radical: si publicamos algo flojo, lo decimos.",
+  "Cómo verificamos: cruzamos al menos dos fuentes primarias para cualquier afirmación factual; cuando solo hay una fuente, lo decimos explícitamente; cuando una afirmación no se puede verificar, la marcamos como rumor. No publicamos noticias sin fuente.",
+  "Errores: si detectas un dato mal atribuido, una cifra equivocada o una afirmación que no aguanta verificación, escríbenos a correcciones@noxeal.com. Las correcciones se publican en /correcciones con fecha, motivo y enlace al artículo original.",
+];
+
+export const TRANSPARENCY_AI_BODY = [
+  "Noxeal usa inteligencia artificial generativa (Claude de Anthropic) como herramienta editorial. No la escondemos: la declaramos abiertamente porque la transparencia es lo que diferencia un medio editorial de un generador de contenido automático.",
+  "Qué hace la IA:",
+  "• Redacta borradores a partir de fuentes RSS y temas asignados por el editor humano.",
+  "• Estructura el contenido, sugiere titulares y meta descripciones.",
+  "• Detecta tendencias virales mediante análisis de frecuencia y reacciones.",
+  "Qué NO hace la IA:",
+  "• Decidir qué se publica. Toda pieza pasa por revisión editorial humana antes de salir.",
+  "• Inventar hechos. Si la IA sugiere algo que no podemos verificar, lo eliminamos o lo marcamos como rumor.",
+  "• Atribuir citas a personas reales. Las citas literales solo se publican si están en fuente primaria documentada.",
+  "Cómo lo marcamos: cualquier artículo con asistencia significativa de IA lleva el autor 'Noxeal AI' y la etiqueta 'IA + Editor' visible en la cabecera. La supervisión humana corrige, contextualiza y filtra.",
+  "Por qué lo hacemos: la velocidad del ciclo de noticias e internet rebasa lo que un equipo pequeño puede cubrir manualmente. La IA nos permite ofrecer cobertura editorial profunda sobre 30+ temas semanales sin perder rigor. Pero la edición — qué importa, qué no, cómo se cuenta — sigue siendo humana.",
+  "Límites éticos que nos imponemos: no usamos IA para imitar voces de periodistas reales; no usamos IA para generar imágenes de personas reales sin consentimiento; no usamos IA para inventar testimonios. Si alguna vez cruzamos uno de estos límites por error, lo corregimos públicamente.",
+];
+
+export const CORRECTIONS_BODY = [
+  "Esta página recoge las correcciones publicadas en Noxeal con fecha, motivo y enlace al artículo afectado. Es nuestra forma de honrar el rigor editorial: cuando nos equivocamos, lo decimos.",
+  "Política de correcciones:",
+  "• Detectamos un error → publicamos la versión corregida del artículo en menos de 24 horas hábiles.",
+  "• La versión corregida lleva una nota al final indicando qué se cambió, cuándo y por qué.",
+  "• Reportamos la corrección en esta página con enlace directo al artículo.",
+  "• Si el error es grave (afirmación factual incorrecta sobre persona, empresa o evento), también publicamos un aviso en redes sociales.",
+  "Cómo reportar un error: escríbenos a correcciones@noxeal.com con el enlace del artículo, qué afirmación es incorrecta y, si es posible, una fuente primaria que lo demuestre.",
+  "Histórico de correcciones (en orden cronológico):",
+  "Aún no hemos publicado correcciones registradas. Cuando ocurra una, aparecerá aquí.",
+];
+
 export const About = () => <Static title="Sobre Noxeal" body={ABOUT_BODY} path="/about" />;
 export const Privacy = () => <Static title="Política de privacidad" body={PRIVACY_BODY} path="/privacy" />;
 export const Terms = () => <Static title="Términos de uso" body={TERMS_BODY} path="/terms" />;
 export const Cookies = () => <Static title="Política de cookies" body={COOKIES_BODY} path="/cookies" />;
 export const Disclaimer = () => <Static title="Aviso editorial" body={DISCLAIMER_BODY} path="/disclaimer" />;
 export const Contact = () => <Static title="Contacto" body={CONTACT_BODY} path="/contact" />;
+export const Editorial = () => <Static title="Política editorial" body={EDITORIAL_BODY} path="/editorial" />;
+export const TransparencyAI = () => <Static title="Transparencia IA" body={TRANSPARENCY_AI_BODY} path="/transparencia-ia" />;
+export const Corrections = () => <Static title="Correcciones publicadas" body={CORRECTIONS_BODY} path="/correcciones" />;

@@ -728,6 +728,10 @@ class MakeArticleIn(BaseModel):
     authorName: Optional[str] = "Noxeal AI"
     status: Optional[str] = None          # "published" | "draft" — overrides `publish`
     publish: Optional[bool] = True
+    # Editorial state — what kind of piece is this? (Bloomberg/NYT-style transparency)
+    factLevel: Optional[str] = "analysis"  # confirmed | analysis | opinion | investigation | rumor | story
+    # 0-100 confidence in the facts of the piece. Defaults heuristically per factLevel.
+    verificationLevel: Optional[int] = None
 
 
 def _map_category(name: str) -> str:
@@ -808,6 +812,22 @@ async def make_create_article(data: MakeArticleIn, _ok: bool = Depends(require_m
     elif data.publish:
         status = "published"
 
+    # Editorial state validation
+    valid_levels = {"confirmed", "analysis", "opinion", "investigation", "rumor", "story"}
+    fact_level = (data.factLevel or "analysis").lower().strip()
+    if fact_level not in valid_levels:
+        fact_level = "analysis"
+
+    # Heuristic default verification level per type
+    default_verif = {
+        "confirmed": 92, "investigation": 78, "analysis": 68,
+        "story": 55, "opinion": 45, "rumor": 20,
+    }
+    verification_level = data.verificationLevel
+    if verification_level is None:
+        verification_level = default_verif[fact_level]
+    verification_level = max(0, min(100, int(verification_level)))
+
     now = datetime.now(timezone.utc).isoformat()
     doc = {
         "id": str(uuid.uuid4()),
@@ -838,6 +858,9 @@ async def make_create_article(data: MakeArticleIn, _ok: bool = Depends(require_m
         "comments_count": 0,
         "viral_score": 0,
         "controversy_score": 0,
+        # Editorial classification
+        "fact_level": fact_level,
+        "verification_level": verification_level,
     }
     await db.articles.insert_one(doc)
     if status == "published":
@@ -1556,6 +1579,11 @@ async def on_startup():
         await db.articles.update_many(
             {"likes": {"$exists": False}},
             {"$set": {"likes": 0, "comments_count": 0, "viral_score": 0, "controversy_score": 0}},
+        )
+        # Backfill editorial fields on legacy docs (default to 'analysis' since most existing content fits)
+        await db.articles.update_many(
+            {"fact_level": {"$exists": False}},
+            {"$set": {"fact_level": "analysis", "verification_level": 68}},
         )
         pipeline = [
             {"$match": {"deleted": {"$ne": True}}},

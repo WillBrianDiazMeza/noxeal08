@@ -24,6 +24,13 @@
   --nx-text-muted: #86868b;
   --nx-border: #e5e5ea;
   --nx-accent: #000000;
+  /* Editorial accent — Bloomberg/NYT-style blue for credibility. Used sparingly. */
+  --nx-blue: #3B82F6;
+  --nx-blue-soft: #eff6ff;
+  --nx-blue-dark: #1e3a8a;
+  --nx-green: #0a7c2f;
+  --nx-amber: #b08900;
+  --nx-red: #b91c1c;
 }
 
 * {

@@ -7,6 +7,8 @@ import SocialShare from "@/components/SocialShare";
 import Comments from "@/components/Comments";
 import RelatedArticles from "@/components/RelatedArticles";
 import ArticleEngagement from "@/components/ArticleEngagement";
+import FactBadge from "@/components/FactBadge";
+import VerificationBar from "@/components/VerificationBar";
 
 function formatDate(iso) {
   if (!iso) return "";
@@ -63,10 +65,23 @@ export default function Articulo() {
           <Link to="/explorar" className="inline-flex items-center gap-2 text-sm text-[#86868b] hover:text-black mb-10" data-testid="article-back">
             <ArrowLeft size={14} /> Volver
           </Link>
-          <div className="label-eyebrow mb-5" data-testid="article-category">{article.category}</div>
-          <h1 className="h-display text-4xl md:text-5xl lg:text-[64px] mb-8 leading-[1.05]" data-testid="article-title">
+          <div className="flex items-center gap-3 mb-5 flex-wrap" data-testid="article-meta-row">
+            <span className="label-eyebrow" data-testid="article-category">{article.category}</span>
+            {article.fact_level && <FactBadge level={article.fact_level} size="md" />}
+          </div>
+          <h1 className={`h-display text-4xl md:text-5xl lg:text-[64px] mb-8 leading-[1.05] ${article.fact_level === "story" ? "italic" : ""}`} data-testid="article-title">
             {article.title}
           </h1>
+
+          {/* Rumor warning banner */}
+          {article.fact_level === "rumor" && (
+            <div className="mb-8 p-5 rounded-2xl bg-red-50 border border-red-200" data-testid="rumor-warning">
+              <p className="text-sm text-red-900 leading-relaxed">
+                <strong>Esto es un rumor en circulación, NO está confirmado.</strong> Noxeal publica este tipo de contenido como análisis de narrativas virales, no como noticia. Lee con criterio y consulta fuentes primarias antes de compartir.
+              </p>
+            </div>
+          )}
+
           <div className="flex items-center gap-3 text-sm text-[#86868b] mb-8 flex-wrap">
             <span data-testid="article-author">{article.author}</span>
             {article.author === "Noxeal AI" && (
@@ -83,6 +98,16 @@ export default function Articulo() {
             views={article.views || 0}
             commentsCount={article.comments_count || 0}
           />
+
+          {/* Verification confidence — only show when meaningful */}
+          {typeof article.verification_level === "number" && (
+            <div className="mt-8">
+              <VerificationBar
+                level={article.verification_level}
+                factLevel={article.fact_level || "analysis"}
+              />
+            </div>
+          )}
         </div>
 
         <div className="max-w-3xl mx-auto px-5 lg:px-0 prose-noxeal" data-testid="article-body">
