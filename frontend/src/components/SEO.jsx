@@ -100,6 +100,10 @@ export default function SEO({
       <meta name="twitter:image" content={ogImage} />
       <link rel="canonical" href={fullUrl} />
       <link rel="alternate" hrefLang="es-ES" href={fullUrl} />
+      <link rel="alternate" hrefLang="es" href={fullUrl} />
+      <link rel="alternate" hrefLang="en" href={`${fullUrl}${fullUrl.includes("?") ? "&" : "?"}lang=en`} />
+      <link rel="alternate" hrefLang="fr" href={`${fullUrl}${fullUrl.includes("?") ? "&" : "?"}lang=fr`} />
+      <link rel="alternate" hrefLang="nl" href={`${fullUrl}${fullUrl.includes("?") ? "&" : "?"}lang=nl`} />
       <link rel="alternate" hrefLang="x-default" href={fullUrl} />
       <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
       <script type="application/ld+json">{JSON.stringify(organizationLd)}</script>

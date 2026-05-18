@@ -18,6 +18,7 @@ LAUNCH_TIMESTAMP_SEC = int(_time.time()) - 200 * 60   # backdate ~3h so stats st
 
 import bcrypt
 import jwt
+import re
 from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, Query, Header
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
@@ -1028,8 +1029,11 @@ class MakeArticleIn(BaseModel):
     whatIsKnown: Optional[List[str]] = Field(default_factory=list)      # bullet list of confirmed facts
     whatIsMissing: Optional[List[str]] = Field(default_factory=list)    # bullet list of unverified gaps
     realityVsVirality: Optional[List[dict]] = Field(default_factory=list)  # [{virality, reality}]
+    # NEW (iter 11.B): deeper editorial blocks
+    whatInternetBelieves: Optional[List[str]] = Field(default_factory=list)  # popular beliefs / theories circulating
+    narrativeEvolution: Optional[List[dict]] = Field(default_factory=list)   # [{date, event}] timeline
 
-    @field_validator("body", "tags", "whatIsKnown", "whatIsMissing", mode="before")
+    @field_validator("body", "tags", "whatIsKnown", "whatIsMissing", "whatInternetBelieves", mode="before")
     @classmethod
     def _coerce_list(cls, v):
         """Make.com sometimes sends a single string where we expect a list,
@@ -1080,6 +1084,24 @@ class MakeArticleIn(BaseModel):
                 if vir and real:
                     out.append({"virality": vir[:300], "reality": real[:300]})
         return out[:8]
+
+    @field_validator("narrativeEvolution", mode="before")
+    @classmethod
+    def _coerce_narrative(cls, v):
+        """Accept null, list of {date, event} dicts. Tolerate alternate keys."""
+        if v is None or v == "":
+            return []
+        if not isinstance(v, list):
+            return []
+        out = []
+        for item in v:
+            if isinstance(item, dict):
+                d = str(item.get("date") or item.get("when") or "").strip()
+                ev = str(item.get("event") or item.get("title") or item.get("what") or "").strip()
+                desc = str(item.get("description") or item.get("note") or "").strip()
+                if d and ev:
+                    out.append({"date": d[:80], "event": ev[:200], "description": desc[:600]})
+        return out[:20]
 
     @field_validator("excerpt", "content", "meta_description", "seoTitle",
                      "seoDescription", "image", "image_prompt", "sourceUrl",
@@ -1177,6 +1199,31 @@ async def make_create_article(data: MakeArticleIn, _ok: bool = Depends(require_m
 
     category = _map_category(data.category)
     base_slug = ai_service.slugify(data.title)
+
+    # Anti-duplicate guard (iter 11.C): reject if a recent published article
+    # already shares the same slug or near-identical title (case-insensitive).
+    dup = await db.articles.find_one(
+        {"$or": [
+            {"slug": base_slug},
+            {"title": {"$regex": f"^{re.escape(data.title.strip())}$", "$options": "i"}},
+        ]},
+        {"_id": 0, "slug": 1, "status": 1, "published_at": 1},
+    )
+    if dup and dup.get("status") == "published":
+        # Log the rejection for admin visibility but don't 500
+        await db.webhook_logs.insert_one({
+            "id": str(uuid.uuid4()),
+            "source": "make.com",
+            "event": "duplicate_rejected",
+            "title": data.title[:200],
+            "existing_slug": dup.get("slug"),
+            "received_at": datetime.now(timezone.utc).isoformat(),
+        })
+        raise HTTPException(
+            status_code=409,
+            detail=f"Duplicado: ya existe un artículo publicado con título o slug similar ({dup.get('slug')}).",
+        )
+
     slug = base_slug
     n = 1
     while await db.articles.find_one({"slug": slug}):
@@ -1251,6 +1298,14 @@ async def make_create_article(data: MakeArticleIn, _ok: bool = Depends(require_m
              "reality":  _sanitize(r.get("reality", ""))[:300]}
             for r in (data.realityVsVirality or [])
         ][:8],
+        # Editorial transparency — deeper blocks (iter 11.B)
+        "what_internet_believes": [_sanitize(s)[:400] for s in (data.whatInternetBelieves or [])][:10],
+        "narrative_evolution": [
+            {"date": _sanitize(e.get("date", ""))[:80],
+             "event": _sanitize(e.get("event", ""))[:200],
+             "description": _sanitize(e.get("description", ""))[:600]}
+            for e in (data.narrativeEvolution or [])
+        ][:20],
     }
     await db.articles.insert_one(doc)
     if status == "published":
@@ -1546,6 +1601,8 @@ class ArticleUpdate(BaseModel):
     what_is_known: Optional[List[str]] = None
     what_is_missing: Optional[List[str]] = None
     reality_vs_virality: Optional[List[dict]] = None
+    what_internet_believes: Optional[List[str]] = None
+    narrative_evolution: Optional[List[dict]] = None
 
 
 class ArticleCreateManual(BaseModel):
@@ -1562,13 +1619,15 @@ class ArticleCreateManual(BaseModel):
     fact_level: str = "analysis"
     verification_level: Optional[int] = None
     status: str = "draft"                                 # "draft" | "published"
-    # Editorial transparency blocks (iter 10)
+    # Editorial transparency blocks (iter 10/11.B)
     faqs: List[dict] = Field(default_factory=list)
     what_is_known: List[str] = Field(default_factory=list)
     what_is_missing: List[str] = Field(default_factory=list)
     reality_vs_virality: List[dict] = Field(default_factory=list)
+    what_internet_believes: List[str] = Field(default_factory=list)
+    narrative_evolution: List[dict] = Field(default_factory=list)
 
-    @field_validator("body", "tags", "what_is_known", "what_is_missing", mode="before")
+    @field_validator("body", "tags", "what_is_known", "what_is_missing", "what_internet_believes", mode="before")
     @classmethod
     def _coerce_list(cls, v):
         if v is None or v == "":
@@ -1610,6 +1669,23 @@ class ArticleCreateManual(BaseModel):
                 if vir and real:
                     out.append({"virality": vir[:300], "reality": real[:300]})
         return out[:8]
+
+    @field_validator("narrative_evolution", mode="before")
+    @classmethod
+    def _coerce_narrative(cls, v):
+        if v is None or v == "":
+            return []
+        if not isinstance(v, list):
+            return []
+        out = []
+        for item in v:
+            if isinstance(item, dict):
+                d = str(item.get("date") or item.get("when") or "").strip()
+                ev = str(item.get("event") or item.get("title") or "").strip()
+                desc = str(item.get("description") or item.get("note") or "").strip()
+                if d and ev:
+                    out.append({"date": d[:80], "event": ev[:200], "description": desc[:600]})
+        return out[:20]
 
 
 CATEGORY_TO_SLUG = {
@@ -1760,6 +1836,14 @@ async def admin_create_manual(data: ArticleCreateManual, admin: dict = Depends(r
              "reality":  _sanitize(r.get("reality", ""))[:300]}
             for r in (data.reality_vs_virality or [])
         ][:8],
+        # iter 11.B
+        "what_internet_believes": [_sanitize(s)[:400] for s in (data.what_internet_believes or [])][:10],
+        "narrative_evolution": [
+            {"date": _sanitize(e.get("date", ""))[:80],
+             "event": _sanitize(e.get("event", ""))[:200],
+             "description": _sanitize(e.get("description", ""))[:600]}
+            for e in (data.narrative_evolution or [])
+        ][:20],
     }
     await db.articles.insert_one(doc)
     if status == "published":
@@ -1917,6 +2001,16 @@ async def admin_delete_subscriber(email: str, _admin: dict = Depends(require_adm
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Suscriptor no encontrado")
     return {"ok": True}
+
+
+@api_router.get("/admin/webhook-logs")
+async def admin_webhook_logs(_admin: dict = Depends(require_admin), limit: int = 50):
+    """Recent webhook events (duplicates rejected, validation errors, etc.)."""
+    limit = max(1, min(200, limit))
+    docs = await db.webhook_logs.find(
+        {}, {"_id": 0}
+    ).sort("received_at", -1).to_list(limit)
+    return docs
 
 
 @api_router.get("/admin/stats")
@@ -2336,19 +2430,50 @@ async def sitemap_tags():
 PILLAR_TOPICS = [
     {"slug": "jeffrey-epstein", "name": "Jeffrey Epstein",
      "tags": ["epstein", "filtraciones", "documentos", "investigacion"],
-     "description": "Todo lo que se sabe (y lo que no) sobre los documentos, las teorías virales y las pruebas verificadas en torno a Jeffrey Epstein."},
+     "description": "Todo lo que se sabe (y lo que no) sobre los documentos, las teorías virales y las pruebas verificadas en torno a Jeffrey Epstein.",
+     "timeline": [
+       {"date": "2005", "event": "Primera investigación policial en Palm Beach", "description": "Detectives identifican un patrón de abuso a menores; el caso termina en un acuerdo controvertido en 2008."},
+       {"date": "Julio 2019", "event": "Arresto federal en Nueva York", "description": "Imputado por tráfico sexual de menores. Muere en prisión un mes después, oficialmente por suicidio."},
+       {"date": "Diciembre 2021", "event": "Condena de Ghislaine Maxwell", "description": "El jurado la declara culpable de cinco cargos relacionados con la red."},
+       {"date": "Enero 2024", "event": "Desclasificación masiva de documentos", "description": "Un tribunal libera miles de páginas con nombres y testimonios bajo juramento."},
+       {"date": "2024-2026", "event": "Ola de teorías y narrativas virales", "description": "Una agenda personal se rebautiza popularmente como 'libro negro'; redes sociales mezclan documentos reales con interpretaciones no contrastadas."}
+     ]},
     {"slug": "inteligencia-artificial", "name": "Inteligencia Artificial",
      "tags": ["ia", "gpt-5", "claude", "consciencia", "tecnologia"],
-     "description": "Análisis lentos sobre la evolución de los modelos, sus límites reales y los mitos virales que circulan en redes."},
+     "description": "Análisis lentos sobre la evolución de los modelos, sus límites reales y los mitos virales que circulan en redes.",
+     "timeline": [
+       {"date": "Nov 2022", "event": "Lanzamiento público de ChatGPT", "description": "Inicio de la era LLM masiva. El término 'IA generativa' se vuelve mainstream."},
+       {"date": "Marzo 2023", "event": "GPT-4 y carta de pausa", "description": "Líderes tech firman una carta abierta pidiendo pausar entrenamientos. La carrera se acelera igual."},
+       {"date": "2024", "event": "Multimodalidad real y agentes", "description": "Claude, Gemini y GPT integran visión, voz y razonamiento. Surgen los primeros agentes operativos."},
+       {"date": "2025-2026", "event": "Debate sobre conciencia y regulación", "description": "Aparecen leyes en UE y EEUU. Crecen los rumores virales sobre IAs 'conscientes' sin evidencia técnica sólida."}
+     ]},
     {"slug": "deepfakes", "name": "Deepfakes",
      "tags": ["deepfakes", "ia", "politica", "verdad"],
-     "description": "Cómo los vídeos sintéticos están redefiniendo campañas, escándalos y el concepto mismo de evidencia."},
+     "description": "Cómo los vídeos sintéticos están redefiniendo campañas, escándalos y el concepto mismo de evidencia.",
+     "timeline": [
+       {"date": "2017", "event": "Primer deepfake viral en Reddit", "description": "El término nace asociado a contenido no consentido. Plataformas reaccionan tarde."},
+       {"date": "2019-2020", "event": "Deepfakes políticos rudimentarios", "description": "Casos en Bélgica, India y EEUU prueban el potencial de manipulación electoral."},
+       {"date": "2023", "event": "Audio sintético indistinguible", "description": "Llamadas falsas de líderes políticos circulan antes de elecciones. Crece la pérdida de confianza en cualquier grabación."},
+       {"date": "2024-2026", "event": "Marca de agua + leyes anti-suplantación", "description": "UE, Reino Unido y varios países latinoamericanos legislan; la detección automática sigue por detrás de la generación."}
+     ]},
     {"slug": "cbdc", "name": "CBDC y privacidad",
      "tags": ["cbdc", "privacidad", "banca", "vigilancia"],
-     "description": "Las monedas digitales de banco central avanzan en silencio. Esto es lo que cambian para tu dinero y tus datos."},
+     "description": "Las monedas digitales de banco central avanzan en silencio. Esto es lo que cambian para tu dinero y tus datos.",
+     "timeline": [
+       {"date": "2014", "event": "China comienza estudios sobre el yuan digital", "description": "El proyecto más antiguo y maduro del mundo en CBDC."},
+       {"date": "2020-2022", "event": "Despliegues piloto en China e Islas Bahamas", "description": "Bahamas lanza el 'Sand Dollar', primera CBDC plenamente operativa."},
+       {"date": "Octubre 2023", "event": "BCE entra en fase preparatoria del euro digital", "description": "Decisión política aún pendiente. Se priorizan privacidad y resiliencia."},
+       {"date": "2024-2026", "event": "Auge de narrativas virales", "description": "Crecen las teorías sobre control social vía CBDC. Bancos centrales publican estudios técnicos para contrarrestarlas."}
+     ]},
     {"slug": "salud-mental-redes", "name": "Salud mental y redes",
      "tags": ["salud-mental", "redes-sociales", "tiktok", "algoritmos"],
-     "description": "El impacto de los feeds en el ánimo, la atención y la ansiedad. Lo que dicen los estudios serios versus lo que viraliza."},
+     "description": "El impacto de los feeds en el ánimo, la atención y la ansiedad. Lo que dicen los estudios serios versus lo que viraliza.",
+     "timeline": [
+       {"date": "2018-2019", "event": "Primeros estudios masivos sobre Instagram y adolescentes", "description": "Surge la preocupación clínica por ansiedad y comparación social."},
+       {"date": "Septiembre 2021", "event": "Filtraciones de Frances Haugen sobre Meta", "description": "Documentos internos revelan que la empresa conocía efectos negativos en chicas adolescentes."},
+       {"date": "2023", "event": "Restricciones legales en EEUU y Europa", "description": "Estados como Utah y leyes europeas (DSA) limitan tiempo de uso y diseño adictivo."},
+       {"date": "2025-2026", "event": "Movimiento global por 'feeds lentos'", "description": "Crecen las apps de slow media. Noxeal nace en esta ola."}
+     ]},
 ]
 
 

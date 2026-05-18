@@ -1,4 +1,4 @@
-import { CheckCircle2, HelpCircle, Eye, Library } from "lucide-react";
+import { CheckCircle2, HelpCircle, Eye, Library, Globe2, History } from "lucide-react";
 import { Helmet } from "react-helmet-async";
 
 /* ─────── "Qué se sabe" — confirmed facts (green-ish) ─────── */
@@ -44,6 +44,68 @@ export function WhatIsMissingBlock({ items }) {
         ))}
       </ul>
     </aside>
+  );
+}
+
+/* ─────── "Lo que internet cree" — popular theories / beliefs (purple) ─────── */
+export function WhatInternetBelievesBlock({ items }) {
+  if (!items || !items.length) return null;
+  return (
+    <aside className="nx-transparency-block nx-internet" data-testid="article-what-internet-believes">
+      <div className="flex items-center gap-2 mb-3">
+        <Globe2 size={16} className="text-purple-700" strokeWidth={2} />
+        <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-purple-900">
+          Lo que internet cree
+        </h3>
+      </div>
+      <p className="text-xs text-purple-800/80 mb-3">
+        Teorías y creencias que circulan en redes. Citadas no como hechos sino como objeto de análisis editorial.
+      </p>
+      <ul className="space-y-2.5">
+        {items.map((it, i) => (
+          <li key={i} className="flex gap-2.5 text-[15px] leading-relaxed text-[#3b1f5e]">
+            <span className="text-purple-700 mt-1 select-none flex-shrink-0">◆</span>
+            <span>{it}</span>
+          </li>
+        ))}
+      </ul>
+    </aside>
+  );
+}
+
+/* ─────── "Cómo evolucionó la narrativa" — vertical timeline ─────── */
+export function NarrativeEvolutionBlock({ items, bare = false }) {
+  if (!items || !items.length) return null;
+  return (
+    <section className={bare ? "" : "nx-narrative-block"} data-testid="article-narrative-evolution">
+      {!bare && (
+        <>
+          <div className="flex items-center gap-2 mb-3">
+            <History size={16} className="text-black" strokeWidth={2} />
+            <h3 className="text-[11px] font-bold uppercase tracking-[0.18em]">
+              Cómo evolucionó la narrativa
+            </h3>
+          </div>
+          <p className="text-sm text-[#86868b] mb-6 max-w-2xl">
+            Lo que pasó, en orden. Los hechos y giros que cambiaron la historia.
+          </p>
+        </>
+      )}
+      <ol className="nx-timeline">
+        {items.map((step, i) => (
+          <li key={i} className="nx-timeline-item" data-testid={`narrative-step-${i}`}>
+            <span className="nx-timeline-dot" aria-hidden="true" />
+            <div className="nx-timeline-content">
+              <time className="nx-timeline-date">{step.date}</time>
+              <h4 className="nx-timeline-event">{step.event}</h4>
+              {step.description && (
+                <p className="text-[14px] text-[#424245] leading-relaxed mt-1.5">{step.description}</p>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

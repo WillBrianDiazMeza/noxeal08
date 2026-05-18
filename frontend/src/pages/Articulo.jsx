@@ -15,6 +15,8 @@ import {
   WhatIsMissingBlock,
   RealityVsViralityBlock,
   ArticleFAQ,
+  WhatInternetBelievesBlock,
+  NarrativeEvolutionBlock,
 } from "@/components/ArticleTransparency";
 import HighlightLayer from "@/components/HighlightLayer";
 import PostReadingActions from "@/components/PostReadingActions";
@@ -176,11 +178,13 @@ export default function Articulo() {
           articleTitle={article.title}
         />
 
-        {/* Editorial transparency blocks (iter 10) — render only if data exists */}
+        {/* Editorial transparency blocks (iter 10/11.B) — render only if data exists */}
         <div className="max-w-3xl mx-auto px-5 lg:px-0">
           {article.what_is_known?.length > 0 && <WhatIsKnownBlock items={article.what_is_known} />}
           {article.what_is_missing?.length > 0 && <WhatIsMissingBlock items={article.what_is_missing} />}
+          {article.what_internet_believes?.length > 0 && <WhatInternetBelievesBlock items={article.what_internet_believes} />}
           {article.reality_vs_virality?.length > 0 && <RealityVsViralityBlock items={article.reality_vs_virality} />}
+          {article.narrative_evolution?.length > 0 && <NarrativeEvolutionBlock items={article.narrative_evolution} />}
         </div>
 
         {/* Source disclosure (for Make.com-imported articles) */}

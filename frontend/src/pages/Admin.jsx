@@ -22,6 +22,7 @@ const TABS = [
   { key: "subscribers", label: "Suscriptores" },
   { key: "users", label: "Usuarios" },
   { key: "make", label: "Make.com" },
+  { key: "webhooks", label: "Webhook logs" },
 ];
 
 export default function Admin() {
@@ -79,8 +80,69 @@ export default function Admin() {
         {tab === "subscribers" && <SubscribersPanel />}
         {tab === "users" && <UsersPanel />}
         {tab === "make" && <MakeDocsPanel />}
+        {tab === "webhooks" && <WebhookLogsPanel />}
       </section>
     </main>
+  );
+}
+
+/* ============== WEBHOOK LOGS PANEL (iter 11.C) ============== */
+function WebhookLogsPanel() {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get("/admin/webhook-logs?limit=100");
+      setLogs(data || []);
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  return (
+    <div data-testid="webhooks-panel">
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h3 className="h-display text-2xl">Webhook logs</h3>
+          <p className="text-sm text-[#86868b] mt-1 max-w-xl">
+            Eventos rechazados o anómalos al recibir artículos por Make.com. Se actualiza cada 30s.
+            Ejemplos: duplicados detectados por título o slug, payloads sin contenido válido, JSON malformado.
+          </p>
+        </div>
+        <button onClick={load} className="text-xs px-3 py-1.5 rounded-full border border-black/10 hover:bg-black/5 inline-flex items-center gap-1" data-testid="webhooks-refresh">
+          <RefreshCw size={12} /> Actualizar
+        </button>
+      </div>
+      {loading ? (
+        <p className="text-[#86868b]">Cargando…</p>
+      ) : logs.length === 0 ? (
+        <div className="py-12 text-center bg-white border border-black/10 rounded-2xl" data-testid="webhooks-empty">
+          <p className="text-[#86868b]">Sin eventos. Tu pipeline Make.com va limpio.</p>
+        </div>
+      ) : (
+        <ul className="space-y-2 bg-white rounded-2xl border border-black/10 divide-y divide-black/5">
+          {logs.map((l) => (
+            <li key={l.id} className="px-5 py-3 flex flex-wrap items-center gap-3 text-sm" data-testid={`webhook-log-${l.id}`}>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 uppercase tracking-widest">
+                {l.event || "evento"}
+              </span>
+              <span className="font-medium truncate flex-1 min-w-0">{l.title || "(sin título)"}</span>
+              {l.existing_slug && (
+                <a className="text-xs text-[var(--nx-blue)] hover:underline" href={`/articulo/${l.existing_slug}`} target="_blank" rel="noreferrer">
+                  ver original
+                </a>
+              )}
+              <span className="text-xs text-[#86868b]">{new Date(l.received_at).toLocaleString("es-ES")}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -558,6 +620,10 @@ function ArticleFormFields({ form, setForm, prefix }) {
       </div>
       <Field label="Imagen (URL o ruta /api/static/...)"><input className="input-pill" value={form.image} onChange={upd("image")} placeholder="Opcional · diseño tipográfico funciona sin imagen" data-testid={`${prefix}-image`} /></Field>
       <Field label="Meta description (SEO)"><textarea rows={2} className="w-full px-5 py-3 rounded-2xl bg-[#f5f5f7] outline-none resize-none" value={form.meta_description} onChange={upd("meta_description")} placeholder="150-160 caracteres. Lo que ve Google en los resultados." data-testid={`${prefix}-meta`} /></Field>
+
+      {/* SEO Live Preview (iter 11.C) */}
+      <SeoPreview form={form} testidPrefix={prefix} />
+
       <Field label="Cuerpo (separa párrafos con línea en blanco)">
         <textarea rows={16} className="w-full px-5 py-3 rounded-2xl bg-[#f5f5f7] outline-none resize-none font-mono text-[13px]" value={form.body} onChange={upd("body")} placeholder={"Primer párrafo de gancho.\n\nSegundo párrafo con contexto.\n\nTercer párrafo con análisis…"} data-testid={`${prefix}-body`} />
         <p className="text-xs text-[#86868b] mt-1">Tip: párrafos cortos, frases claras. Editorial Noxeal = pocos adjetivos, fuentes citadas, sin clickbait.</p>
@@ -850,6 +916,83 @@ function KV({ label, value, onCopy, testid, sensitive }) {
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+
+/* ============== SEO LIVE PREVIEW (iter 11.C) ============== */
+function SeoPreview({ form, testidPrefix }) {
+  const title = (form.title || "Sin título").trim();
+  const meta = (form.meta_description || form.excerpt || "Sin descripción.").trim();
+  const tags = (form.tags || "").split(",").map((s) => s.trim()).filter(Boolean);
+
+  // Heuristic SEO score
+  const warnings = [];
+  if (title.length < 30) warnings.push("Título corto (<30 chars). Idealmente 45-60.");
+  if (title.length > 70) warnings.push("Título largo (>70 chars). Google trunca a ~60.");
+  if (meta.length < 70) warnings.push("Meta description corta (<70 chars). Apunta a 140-160.");
+  if (meta.length > 165) warnings.push("Meta description larga (>165 chars). Google trunca.");
+  if (tags.length === 0) warnings.push("Sin tags. Afecta sitemap-tags y relacionados.");
+  if (!form.fact_level) warnings.push("Sin fact level explícito.");
+  if (!form.source_url) warnings.push("Sin URL de fuente — afecta confianza editorial.");
+  if (!form.what_is_known && !form.faqs) warnings.push("Sin bloques de transparencia (Qué se sabe / FAQ).");
+  const score = Math.max(0, 100 - warnings.length * 12);
+
+  const scoreColor = score >= 80 ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+                   : score >= 60 ? "text-amber-700 bg-amber-50 border-amber-200"
+                                 : "text-red-700 bg-red-50 border-red-200";
+
+  return (
+    <div className="rounded-2xl border border-black/10 bg-[#fafafa] p-4 space-y-4" data-testid={`${testidPrefix}-seo-preview`}>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <span className="label-eyebrow">Vista previa SEO en vivo</span>
+        </div>
+        <span className={`text-xs px-2.5 py-1 rounded-full border font-semibold ${scoreColor}`} data-testid={`${testidPrefix}-seo-score`}>
+          Score {score}/100
+        </span>
+      </div>
+
+      {/* Google SERP preview */}
+      <div className="bg-white rounded-xl p-4 border border-black/5" data-testid={`${testidPrefix}-google-preview`}>
+        <div className="text-[11px] text-[#86868b] mb-1">Google · resultado orgánico</div>
+        <div className="text-[14px] text-[#202124] mb-0.5">noxeal.com › articulo › {(form.title ? form.title : "slug").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}</div>
+        <div className="text-[20px] leading-[1.2] text-[#1a0dab] font-medium hover:underline cursor-pointer">{title.slice(0, 60)}{title.length > 60 ? "…" : ""}</div>
+        <div className="text-[13px] leading-relaxed text-[#4d5156] mt-1">{meta.slice(0, 160)}{meta.length > 160 ? "…" : ""}</div>
+      </div>
+
+      {/* Twitter / X card preview */}
+      <div className="bg-white rounded-xl border border-black/10 overflow-hidden" data-testid={`${testidPrefix}-twitter-preview`}>
+        <div className="text-[11px] text-[#86868b] px-4 pt-3">X · Twitter card (summary_large_image)</div>
+        <div className="px-4 pb-4 pt-2">
+          <div className="rounded-xl border border-black/10 overflow-hidden">
+            <div className="aspect-[1.91/1] bg-gradient-to-br from-[#0d0d0f] to-[#1f1f23] flex items-center justify-center">
+              <span className="text-white/40 text-xs uppercase tracking-widest">{form.category || "Noxeal"}</span>
+            </div>
+            <div className="p-3 bg-white">
+              <div className="text-[11px] text-[#86868b] uppercase tracking-wider">noxeal.com</div>
+              <div className="text-[15px] text-[#0f1419] font-semibold leading-tight mt-0.5">{title.slice(0, 70)}</div>
+              <div className="text-[13px] text-[#536471] mt-1 leading-snug">{meta.slice(0, 110)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Warnings list */}
+      {warnings.length > 0 && (
+        <ul className="space-y-1.5" data-testid={`${testidPrefix}-seo-warnings`}>
+          {warnings.map((w, i) => (
+            <li key={i} className="text-[12.5px] text-amber-900 flex items-start gap-2">
+              <span className="text-amber-700 select-none">!</span>
+              <span>{w}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {warnings.length === 0 && (
+        <p className="text-[12.5px] text-emerald-700">✓ Sin advertencias. Configuración SEO sólida.</p>
+      )}
     </div>
   );
 }

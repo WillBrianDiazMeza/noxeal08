@@ -5,6 +5,7 @@ import { ArrowRight, Layers } from "lucide-react";
 import { api } from "@/lib/api";
 import SEO from "@/components/SEO";
 import FactBadge from "@/components/FactBadge";
+import { NarrativeEvolutionBlock } from "@/components/ArticleTransparency";
 
 function formatDate(iso) {
   if (!iso) return "";
@@ -129,6 +130,20 @@ export default function TemaDetalle() {
         <h1 className="h-display text-4xl md:text-5xl lg:text-[64px] leading-[1.02] mb-6">{data.name}</h1>
         <p className="text-xl text-[#1a1a1a] leading-relaxed max-w-3xl">{data.description}</p>
       </section>
+
+      <div className="nx-divider max-w-5xl mx-auto" />
+
+      {/* Timeline of the narrative (iter 11.B) — pillar-specific curated events */}
+      {data.timeline && data.timeline.length > 0 && (
+        <section className="max-w-5xl mx-auto px-5 lg:px-8 py-14" data-testid="tema-timeline">
+          <div className="label-eyebrow mb-3" style={{ color: "var(--nx-blue)" }}>Cronología</div>
+          <h2 className="h-display text-3xl mb-3">Cómo evolucionó {data.name}</h2>
+          <p className="text-base text-[#86868b] mb-8 max-w-2xl">
+            Los hitos clave en orden. Hechos confirmados y giros narrativos que cambiaron la historia.
+          </p>
+          <NarrativeEvolutionBlock items={data.timeline} bare />
+        </section>
+      )}
 
       <div className="nx-divider max-w-5xl mx-auto" />
 

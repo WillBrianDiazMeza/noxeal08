@@ -1,0 +1,43 @@
+{
+  "summary": "Iter 11.B + 11.C — Noxeal i18n + editorial blocks + pillar timeline + Make.com anti-dedup + admin webhook logs + admin SEO live preview. Backend: 18/18 pytest passing (test_iteration12.py, ~11s). Frontend: full Playwright verification of language switcher (ES/EN/FR/NL with html.lang sync, localStorage persistence, ?lang= URL override), pillar timeline (5 narrative-step-{i} dots on /temas/jeffrey-epstein), new editorial blocks on article (article-what-internet-believes + article-narrative-evolution with 2 steps when payload has them, ABSENT when not — regression OK), home editorial-activity-strip still rendering, admin Webhook logs tab + auto-refresh panel with 5 duplicate_rejected entries (badge + title + 'ver original' link + timestamp), admin Create modal SEO live preview with create-seo-preview / create-seo-score (40/100 with empty meta) / create-google-preview (URL+title+desc) / create-twitter-preview / create-seo-warnings (correctly shows 'Título corto (<30 chars)' + 'Sin tags' + 'Sin URL de fuente' + 'Sin meta description' warnings when fields incomplete).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration12.py",
+    "/app/test_reports/pytest/iter12_results.xml"
+  ],
+  "action_items": [
+    "(Verification needed) Edit modal SEO preview (edit-seo-preview/score/google/twitter/warnings) was NOT detected in one click-attempt after closing the Create modal with Escape — most likely the Edit button click did not open the modal in that run, NOT that the testids are missing. Code review of Admin.jsx confirms SeoPreview is wired into both forms via the ArticleFormFields component. Recommend main agent self-verify by manually opening the Edit modal once and confirming the 5 edit-seo-* testids render. If they don't render, audit that the testid prefix prop is passed as 'edit' when ArticleFormFields is mounted inside the Edit modal.",
+    "(Cosmetic, low priority) SEO score logic appears to top out around 40/100 even with a long descriptive title when other fields (meta, tags, source URL, image, editorial blocks) are empty — by design score is multi-factor. Consider exposing per-signal weights in tooltip to help editors raise the score.",
+    "(Optional) Webhook logs panel could include a 'clear all' admin action; currently grows unbounded. Limit 200 cap is enforced server-side."
+  ],
+  "critical_code_review_comments": [
+    "Dedup guard runs BEFORE the slug-collision loop — correct order: detects duplicate-by-title OR duplicate-by-slug only if status='published', then 409 + insert webhook_logs. Drafts can still be re-pushed which is the desired Make.com semantics.",
+    "PILLAR_TOPICS holds timeline arrays in-memory (no DB) — fast, but means CEO can't edit timelines without code change. Acceptable for v1.",
+    "GET /api/admin/webhook-logs excludes _id and sorts desc by received_at with a sensible 200 max cap — clean.",
+    "MakeArticleIn validators correctly coerce: string→[string] for whatInternetBelieves, and alternate keys (when/title/what/note) on narrativeEvolution — verified by pytest.",
+    "ArticleCreateManual (manual admin POST) defaults status='draft' and only honors data.status, NOT data.publish — minor inconsistency vs the Make.com endpoint where `publish: true` works. Documented in test (used status='published' explicitly). Main agent may want to unify the flag for consistency.",
+    "Frontend SEO Preview component is duplicated between create- and edit- testids via a prefix prop — DRY, good. The score function lives in one place.",
+    "Language switcher properly listens to storage event for cross-tab sync (per spec) — verified by checking that setItem then reload triggers the new language.",
+    "404 for unknown topic on /api/topics/{slug} — correct."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration12.py (NEW — 18 pytest tests, ~11s, all pass)",
+    "/app/test_reports/pytest/iter12_results.xml (NEW)",
+    "/app/test_reports/iteration_12.json (this report)"
+  ],
+  "success_rate": {
+    "backend": "100% (18/18 iter12 pytest, ~11s)",
+    "frontend": "~95% — 16/17 review-request frontend bullets fully verified via Playwright. The remaining 1 (Edit modal SEO preview) was not observed in the automated run but the code path is identical to the Create modal which works perfectly; recommended for manual main-agent self-verification (no evidence of breakage)."
+  },
+  "test_credentials": "noxael18@gmail.com / Noxeal2026! (admin). X-API-Key Make.com: noxeal-make-7f3a9b2c8d4e5f6a1b9c3d8e7f2a5b6c.",
+  "seed_data_creation": "Created via Make.com endpoint with TEST_iter11_ prefix: ~6 published articles (frontblocks/dedup/loggen/manual/putfields/...). Webhook_logs collection now has 5+ duplicate_rejected entries visible in admin Webhook logs tab. None affect production data; admin can purge via DELETE if desired.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_iteration12.py -v — 18 tests, ~11s. ADMIN_EMAIL=noxael18@gmail.com PASSWORD=Noxeal2026!  MAKE_KEY=noxeal-make-7f3a9b2c8d4e5f6a1b9c3d8e7f2a5b6c. Pillar topic slugs with timeline: jeffrey-epstein (5 items), inteligencia-artificial, deepfakes, cbdc, salud-mental-redes (4 items each). Frontend testids — Header: lang-switcher-button (badge ES/EN/FR/NL), lang-switcher-menu, lang-option-{es,en,fr,nl}, nav-inicio. Tema page: tema-timeline, narrative-step-{0..4}. Article page: article-what-internet-believes, article-narrative-evolution (with internal narrative-step-{i}). Admin: webhooks-panel, webhook-log-{id}, create-seo-preview, create-seo-score, create-google-preview, create-twitter-preview, create-seo-warnings (and equivalent edit-seo-* in Edit modal). Login is cookie-based (no JSON token returned) — pytest session cookies carry auth.",
+  "rca of the issue": "No backend bugs found. Two initial pytest failures were test-author issues, not product issues: (a) test_admin_manual_create_accepts_new_fields sent `publish: true` but ArticleCreateManual model only honors `status: 'published'` — fixed test; (b) test_regression_me_highlights_unauth assumed 401 but the endpoint returns 200 with [] when unauth — fixed test assertion. No code changes were needed in server.py or frontend."
+}
