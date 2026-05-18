@@ -360,3 +360,50 @@ Todos los campos tienen `field_validator` Pydantic que tolera null, strings suel
 - 🟢 P2: Sistema emocional/narrativo del internet por categoría (humor agregado por feed Make.com).
 - 🟢 P2: Audio articles (TTS) + dark mode premium.
 - 🟢 P2: Traducción real de contenido editorial via Make.com + Claude (hoy UI cambia pero artículos siguen en ES).
+
+### Iteración 12 + 13 + 14 (2026-05-18) ⭐ SISTEMA MULTI-IDIOMA GLOBAL (Opción A · Claude + cache)
+**Tests**: backend 21/21 pytest (100%) · frontend 7/7 retest (100%) · `retest_needed: False` · zero issues.
+
+#### Arquitectura i18n de 2 capas
+- **Capa 1 — Diccionario estático** (`lib/i18n.js`): 30+ claves de alto tráfico (nav, common, lang, footer.tagline, article.*) en ES/EN/FR/NL. Síncrono, sin red.
+- **Capa 2 — Traducción dinámica vía Claude** (`POST /api/translate/strings`): cualquier string `t("texto libre")` que no está en DICT se traduce automáticamente vía Emergent LLM Key, batched 80ms (varios strings en una sola llamada), cacheado en `localStorage` Y en `db.ui_translations` (cross-user reuse).
+
+#### Detección y persistencia
+- **Detección inicial**: URL `?lang=` > localStorage `noxeal_lang` > navigator.language > "es".
+- **Persistencia**: localStorage + URL sync via `window.history.replaceState` cuando el usuario cambia idioma (bug fix iter 14).
+- **Sync entre pestañas**: `storage` event + CustomEvent `noxeal:lang-change`.
+- `<html lang>` se actualiza dinámicamente con el código BCP-47 correcto.
+
+#### Auto-traducción de artículos editoriales
+- `GET /api/articles/{slug}?lang=en|fr|nl` — 1ª vez: traduce vía Claude (~10-15s) y persiste en `db.articles.{slug}.translations.{lang}`. 2ª vez: instantáneo (<1s).
+- Traduce: title, excerpt, body, meta_description, faqs, what_is_known, what_is_missing, what_internet_believes, reality_vs_virality, narrative_evolution. **Mantiene** nombres propios, URLs, hashtags y emojis.
+- `GET /api/articles, /featured, /most-read?lang=xx` — aplica SOLO traducciones cached (no triggers fresh para que los listados sean rápidos y baratos).
+- Fallback seguro: si Claude falla → devuelve español original.
+
+#### UI traducida globalmente
+- **Header**: nav labels, "Entrar"/"Suscribirse", aria-labels.
+- **Footer**: tagline, secciones (Navegar/Editorial/Legal/Newsletter), CTA, copyright.
+- **Home**: hero h1 + subhero + 2 CTAs + activity strip ("Redacción en directo", "Última publicación hace X min", counters).
+- **LoadingScreen**: 5 frases editoriales rotativas traducidas.
+- **Articulo**: banner azul "Traducción automática · El original está en español." + botón "Ver original" ↔ "Volver a traducción".
+
+#### Frontend API interceptor
+- `lib/api.js` axios interceptor inyecta `?lang=` automáticamente en TODOS los GET excepto `/translate/*` y `/admin/*` (admin siempre ve la fuente en ES). Cualquier componente que use `api.get(...)` recibe contenido traducido sin tocar el código.
+
+#### ESLint Vercel fixes (preexistentes)
+- `MisNotas.jsx`: `load` envuelto en `useCallback`, dependencias `[user?.email]` declaradas explícitamente.
+- `Guardados.jsx`: mismo patrón. Sin `eslint-disable-next-line`. Vercel build verde.
+
+#### Cómo se usa
+1. Usuario en `/` → click badge "ES" → seleccionar "FR" → URL pasa a `?lang=fr`, reload → toda la UI en francés + artículos cacheados aparecen ya traducidos.
+2. Usuario hace click en un artículo nunca traducido → spinner ~10s → contenido en francés + banner azul → 1 click para ver original.
+3. Make.com sigue publicando solo en español. Las traducciones se generan a demanda y se reutilizan entre usuarios.
+
+**Backlog restante priorizado**:
+- 🟡 P1: Dashboard premium del lector (`/perfil`) con historial, intereses emocionales detectados, stats lectura.
+- 🟡 P1: Sistema emocional/narrativo del internet por categoría (humor agregado por feed).
+- 🟢 P2: Audio articles (TTS de OpenAI Whisper inverse).
+- 🟢 P2: Dark mode premium con transición elegante.
+- 🟢 P2: PWA mode (instalable como app móvil).
+- 🟢 P2: Notificaciones push de nuevos artículos en temas seguidos.
+

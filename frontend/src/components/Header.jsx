@@ -59,18 +59,18 @@ export default function Header() {
                 </NavLink>
               )}
               <span className="text-sm text-[#111] font-medium" data-testid="user-name">{user.name}</span>
-              <button onClick={logout} className="nav-link inline-flex items-center gap-1" data-testid="nav-logout" aria-label="Salir">
+              <button onClick={logout} className="nav-link inline-flex items-center gap-1" data-testid="nav-logout" aria-label={t("nav.signout")}>
                 <LogOut size={15} strokeWidth={1.5} />
               </button>
             </div>
           ) : (
             <NavLink to="/entrar" className="nav-link inline-flex items-center gap-2" data-testid="nav-entrar">
-              <User size={16} strokeWidth={1.5} /> Entrar
+              <User size={16} strokeWidth={1.5} /> {t("nav.signin")}
             </NavLink>
           )}
 
           <Link to="/suscribirse" className="btn-primary" style={{ padding: "10px 22px", fontSize: 14 }} data-testid="nav-suscribirse">
-            Suscribirse
+            {t("nav.subscribe")}
           </Link>
         </div>
 
