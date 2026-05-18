@@ -58,7 +58,16 @@ export default function Header() {
                   Admin
                 </NavLink>
               )}
-              <span className="text-sm text-[#111] font-medium" data-testid="user-name">{user.name}</span>
+              <NavLink
+                to="/perfil"
+                className={({isActive})=>`nav-link inline-flex items-center gap-2 ${isActive?"active":""}`}
+                data-testid="nav-perfil"
+                aria-label={t("nav.profile")}
+                title={t("nav.profile")}
+              >
+                <User size={16} strokeWidth={1.5} />
+                <span className="text-sm text-[#111] font-medium" data-testid="user-name">{user.name}</span>
+              </NavLink>
               <button onClick={logout} className="nav-link inline-flex items-center gap-1" data-testid="nav-logout" aria-label={t("nav.signout")}>
                 <LogOut size={15} strokeWidth={1.5} />
               </button>
@@ -96,6 +105,9 @@ export default function Header() {
             <NavLink to="/buscar" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-buscar">{t("nav.search")}</NavLink>
             <NavLink to="/guardados" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-guardados">{t("nav.saved")}</NavLink>
             <NavLink to="/mis-notas" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-notas">{t("nav.notes")}</NavLink>
+            {user && user.email && (
+              <NavLink to="/perfil" onClick={()=>setMobileOpen(false)} className="nav-link" data-testid="m-nav-perfil">{t("nav.profile")}</NavLink>
+            )}
             <div className="pt-2 border-t border-black/5">
               <LanguageSwitcher compact={false} />
             </div>

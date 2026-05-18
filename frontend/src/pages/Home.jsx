@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight } from "lucide-react";
 import { api } from "@/lib/api";
@@ -9,10 +9,11 @@ import NewsletterSection from "@/components/NewsletterSection";
 import LiveCounter from "@/components/LiveCounter";
 import LazySection from "@/components/LazySection";
 import EditorialActivityStrip from "@/components/EditorialActivityStrip";
-import { useLang } from "@/lib/i18n";
+import EmotionalStateStrip from "@/components/EmotionalStateStrip";
+import { useLang, translateMany } from "@/lib/i18n";
 
 export default function Home() {
-  const { t } = useLang();
+  const { lang, t } = useLang();
   const [data, setData] = useState({ hero: null, side: [], viral: [], latest: [] });
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
@@ -22,10 +23,40 @@ export default function Home() {
   const [mostCommented, setMostCommented] = useState([]);
   const serverStatsRef = useRef(null);
 
+  // Helper: when lang != es, batch-translate titles/excerpts of an article list so the
+  // Home stays fully localized without waiting for the user to open each article.
+  const localizeList = useCallback(async (arr) => {
+    if (!Array.isArray(arr) || arr.length === 0 || !lang || lang === "es") return arr;
+    const titles = arr.map((a) => a?.title || "");
+    const excerpts = arr.map((a) => a?.excerpt || "");
+    const cats = arr.map((a) => a?.category || "");
+    const [tT, tE, tC] = await Promise.all([
+      translateMany(titles, lang),
+      translateMany(excerpts, lang),
+      translateMany(cats, lang),
+    ]);
+    return arr.map((a, i) => a ? ({ ...a, title: tT[i] || a.title, excerpt: tE[i] || a.excerpt, category: tC[i] || a.category }) : a);
+  }, [lang]);
+
   useEffect(() => {
+    let cancelled = false;
+    const setIf = (fn) => (v) => { if (!cancelled) fn(v); };
     const fetchAll = () => {
-      api.get("/articles/featured").then(({ data }) => setData(data)).catch(() => {});
+      api.get("/articles/featured").then(async ({ data }) => {
+        if (cancelled) return;
+        setData(data);
+        if (lang && lang !== "es") {
+          const [hero, side, viral, latest] = await Promise.all([
+            data.hero ? localizeList([data.hero]).then((a) => a[0]) : Promise.resolve(null),
+            localizeList(data.side || []),
+            localizeList(data.viral || []),
+            localizeList(data.latest || []),
+          ]);
+          if (!cancelled) setData({ hero, side, viral, latest });
+        }
+      }).catch(() => {});
       api.get("/public-stats").then(({ data }) => {
+        if (cancelled) return;
         serverStatsRef.current = data;
         // Resync: take the higher value between local drift and authoritative server count.
         setStats((prev) => {
@@ -37,10 +68,10 @@ export default function Home() {
           };
         });
       }).catch(() => {});
-      api.get("/articles/most-read?limit=4").then(({ data }) => setMostRead(data || [])).catch(() => {});
-      api.get("/feed/trending?limit=4").then(({ data }) => setTrending(data || [])).catch(() => {});
-      api.get("/feed/controversial?limit=3").then(({ data }) => setControversial(data || [])).catch(() => {});
-      api.get("/feed/most-commented?limit=3").then(({ data }) => setMostCommented(data || [])).catch(() => {});
+      api.get("/articles/most-read?limit=4").then(({ data }) => localizeList(data || []).then(setIf(setMostRead))).catch(() => {});
+      api.get("/feed/trending?limit=4").then(({ data }) => localizeList(data || []).then(setIf(setTrending))).catch(() => {});
+      api.get("/feed/controversial?limit=3").then(({ data }) => localizeList(data || []).then(setIf(setControversial))).catch(() => {});
+      api.get("/feed/most-commented?limit=3").then(({ data }) => localizeList(data || []).then(setIf(setMostCommented))).catch(() => {});
     };
     fetchAll();
     setLoading(false);
@@ -51,7 +82,6 @@ export default function Home() {
 
     // Random local "live drift": stats grow at an organic, irregular rhythm.
     // Reads: +1..+4 every 1.2-3.5s. Subs: +1 ~every 30-75s (rare, lifelike).
-    let cancelled = false;
     const tickReads = () => {
       if (cancelled) return;
       setStats((prev) => {
@@ -87,7 +117,7 @@ export default function Home() {
       clearTimeout(r2);
       window.removeEventListener("focus", onFocus);
     };
-  }, []);
+  }, [lang, localizeList]);
 
   return (
     <main data-testid="home-page">
@@ -220,6 +250,8 @@ export default function Home() {
       </section>
 
       {/* ========== POLÉMICOS + MÁS COMENTADOS (debate & friction) ========== */}
+      <EmotionalStateStrip />
+
       <LazySection minHeight={400} testId="lazy-debate">
       {(controversial.length > 0 || mostCommented.length > 0) && (
         <section className="py-24 border-t border-black/5" data-testid="debate-section">

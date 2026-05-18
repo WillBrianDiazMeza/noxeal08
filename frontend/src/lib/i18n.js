@@ -219,3 +219,45 @@ export function getCurrentLang() {
   } catch { /* ignore */ }
   return "es";
 }
+
+/**
+ * Batch translate an array of arbitrary strings (e.g., article titles) to the
+ * current selected language. Returns a same-length array, immediately
+ * resolved from cache when possible and async-translated otherwise.
+ *
+ *   const tr = await translateMany(["Hola","Mundo"]);  // → ["Hello","World"]
+ *
+ * Safe to call with lang = es: returns the input untouched.
+ */
+export async function translateMany(strings, lang = getCurrentLang()) {
+  if (!Array.isArray(strings) || strings.length === 0) return strings || [];
+  if (!lang || lang === "es" || !DICT[lang]) return strings;
+  const cache = readCache();
+  cache[lang] = cache[lang] || {};
+  const result = new Array(strings.length);
+  const missing = [];
+  const missingIdx = [];
+  strings.forEach((s, i) => {
+    if (s == null) { result[i] = s; return; }
+    const key = String(s);
+    if (cache[lang][key] !== undefined) { result[i] = cache[lang][key]; return; }
+    result[i] = key;            // fallback while we fetch
+    missing.push(key);
+    missingIdx.push(i);
+  });
+  if (missing.length === 0) return result;
+  try {
+    const { data } = await axios.post(`${API_BASE}/api/translate/strings`, {
+      strings: missing, lang,
+    }, { timeout: 25000 });
+    const arr = (data && data.translations) || missing;
+    missingIdx.forEach((idx, j) => {
+      const tr = arr[j] || strings[idx];
+      result[idx] = tr;
+      cache[lang][missing[j]] = tr;
+    });
+    writeCache(cache);
+    window.dispatchEvent(new Event("noxeal:i18n-cache-update"));
+  } catch { /* keep originals */ }
+  return result;
+}

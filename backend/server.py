@@ -635,6 +635,219 @@ async def my_highlights_delete(hid: str, user: dict = Depends(get_current_user))
     return {"ok": True}
 
 
+# ---------- Emotional / Narrative mapping ----------
+# Maps tags + categories to internet emotional states. Pure curation.
+EMOTION_MAP = [
+    {"key": "ansiedad_tecnologica", "label": "Ansiedad tecnológica",
+     "desc": "El miedo a una IA que nos rebasa.",
+     "tags": ["ia", "ai", "deepfake", "deepfakes", "agi", "chatgpt", "claude", "robot", "automatizacion"],
+     "categories": ["IA", "Tecnología"]},
+    {"key": "indignacion_viral", "label": "Indignación viral",
+     "desc": "Lo polémico se viraliza más rápido que la realidad.",
+     "tags": ["polemica", "controversia", "viral", "escandalo", "denuncia"],
+     "categories": ["Cultura digital", "Controversia"]},
+    {"key": "curiosidad_investigativa", "label": "Curiosidad investigativa",
+     "desc": "Hilos largos, dudas legítimas, hechos verificables.",
+     "tags": ["investigacion", "epstein", "documentos", "verificacion", "fact-check"],
+     "categories": ["Investigación"]},
+    {"key": "desconfianza_institucional", "label": "Desconfianza institucional",
+     "desc": "Bancos, gobiernos y plataformas vigilados.",
+     "tags": ["cbdc", "privacidad", "vigilancia", "gobierno", "banco", "censura"],
+     "categories": ["Investigación", "Tecnología"]},
+    {"key": "agotamiento_emocional", "label": "Agotamiento emocional",
+     "desc": "Salud mental, redes y burnout colectivo.",
+     "tags": ["salud-mental", "ansiedad", "burnout", "redes", "tiktok", "instagram"],
+     "categories": ["Salud y redes"]},
+    {"key": "fascinacion_cultural", "label": "Fascinación cultural",
+     "desc": "Lo extraño, lo nuevo, lo que nos cambia los hábitos.",
+     "tags": ["cultura", "tendencia", "memes", "internet", "generacion-z"],
+     "categories": ["Cultura digital"]},
+]
+
+
+def _emotion_for(category: Optional[str], tags: Optional[List[str]]) -> Optional[dict]:
+    """Pick the strongest matching emotion for an article. Tag match > category match."""
+    tagset = set((tags or []))
+    best = None
+    best_score = 0
+    for em in EMOTION_MAP:
+        tag_overlap = len(tagset.intersection(em["tags"]))
+        cat_match = 1 if category and category in em["categories"] else 0
+        score = tag_overlap * 3 + cat_match
+        if score > best_score:
+            best_score = score
+            best = em
+    return best if best_score > 0 else None
+
+
+@api_router.get("/emotional/state")
+async def emotional_state():
+    """Public: aggregated emotional climate of the platform.
+    Score each emotion by recent articles (last 30d) weighted by viral_score + comments.
+    Returns ordered list with relative intensity (0-100)."""
+    if db is None:
+        return {"emotions": [], "generated_at": datetime.now(timezone.utc).isoformat()}
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    docs = await db.articles.find(
+        {**PUBLIC_STATUS_FILTER, "published_at": {"$gte": since}},
+        {"_id": 0, "tags": 1, "category": 1, "viral_score": 1,
+         "controversy_score": 1, "comments_count": 1, "views": 1, "slug": 1, "title": 1},
+    ).limit(400).to_list(400)
+    scores = {em["key"]: {"meta": em, "score": 0.0, "count": 0, "top": None, "top_score": 0}
+              for em in EMOTION_MAP}
+    for d in docs:
+        em = _emotion_for(d.get("category"), d.get("tags"))
+        if not em:
+            continue
+        w = (d.get("viral_score", 0) or 0) * 2 + (d.get("controversy_score", 0) or 0) * 2 \
+            + (d.get("comments_count", 0) or 0) * 3 + min(50, (d.get("views", 0) or 0) // 50)
+        w = max(1, w)
+        bucket = scores[em["key"]]
+        bucket["score"] += w
+        bucket["count"] += 1
+        if w > bucket["top_score"]:
+            bucket["top_score"] = w
+            bucket["top"] = {"slug": d.get("slug"), "title": d.get("title")}
+    max_score = max((b["score"] for b in scores.values()), default=0) or 1
+    out = []
+    for b in scores.values():
+        if b["count"] == 0:
+            continue
+        out.append({
+            "key": b["meta"]["key"],
+            "label": b["meta"]["label"],
+            "desc": b["meta"]["desc"],
+            "intensity": round(b["score"] * 100 / max_score),
+            "article_count": b["count"],
+            "top": b["top"],
+        })
+    out.sort(key=lambda e: e["intensity"], reverse=True)
+    return {
+        "emotions": out,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "sample_size": sum(b["count"] for b in scores.values()),
+    }
+
+
+# ---------- Premium user dashboard (/perfil) ----------
+@api_router.get("/me/dashboard")
+async def my_dashboard(user: dict = Depends(get_current_user)):
+    """Reader profile aggregations: history, time spent, favorite categories,
+    emotional map detected from reads, saved & highlights counts, streak.
+    Best-effort: never raises on partial data."""
+    uid = user["id"]
+    # Reading history (newest first)
+    history = await db.user_reads.find(
+        {"user_id": uid}, {"_id": 0}
+    ).sort("read_at", -1).limit(500).to_list(500)
+
+    total_reads = len(history)
+    total_minutes = sum(int(h.get("read_time") or 4) for h in history)
+
+    by_category = {}
+    by_fact_level = {}
+    tag_counts = {}
+    emotion_counts = {em["key"]: {"meta": em, "count": 0} for em in EMOTION_MAP}
+    days_set = set()
+    for h in history:
+        cat = h.get("category") or "Sin categoría"
+        by_category[cat] = by_category.get(cat, 0) + 1
+        fl = h.get("fact_level") or "analysis"
+        by_fact_level[fl] = by_fact_level.get(fl, 0) + 1
+        for tag in (h.get("tags") or []):
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        em = _emotion_for(h.get("category"), h.get("tags"))
+        if em:
+            emotion_counts[em["key"]]["count"] += 1
+        # Reading streak day
+        try:
+            day = (h.get("read_at") or "")[:10]
+            if day:
+                days_set.add(day)
+        except Exception:
+            pass
+
+    # Reading streak — consecutive days backwards from today
+    streak = 0
+    today = datetime.now(timezone.utc).date()
+    for i in range(0, 366):
+        d = (today - timedelta(days=i)).isoformat()
+        if d in days_set:
+            streak += 1
+        else:
+            if i == 0:
+                # No read today; check yesterday to still allow streak from yesterday backwards
+                continue
+            break
+
+    top_categories = sorted(
+        ({"name": k, "count": v} for k, v in by_category.items()),
+        key=lambda x: x["count"], reverse=True,
+    )[:5]
+    top_tags = sorted(
+        ({"slug": k, "count": v} for k, v in tag_counts.items()),
+        key=lambda x: x["count"], reverse=True,
+    )[:8]
+    max_em = max((b["count"] for b in emotion_counts.values()), default=0) or 1
+    emotions = []
+    for b in emotion_counts.values():
+        if b["count"] == 0:
+            continue
+        emotions.append({
+            "key": b["meta"]["key"],
+            "label": b["meta"]["label"],
+            "desc": b["meta"]["desc"],
+            "count": b["count"],
+            "intensity": round(b["count"] * 100 / max_em),
+        })
+    emotions.sort(key=lambda e: e["intensity"], reverse=True)
+
+    # Recent feed
+    recent = [{
+        "slug": h.get("slug"),
+        "title": h.get("title"),
+        "category": h.get("category"),
+        "fact_level": h.get("fact_level"),
+        "read_at": h.get("read_at"),
+        "read_time": h.get("read_time") or 4,
+    } for h in history[:12]]
+
+    saved_doc = await db.user_saved.find_one({"user_id": uid}, {"_id": 0, "slugs": 1})
+    saved_count = len((saved_doc or {}).get("slugs") or [])
+    highlights_count = await db.user_highlights.count_documents({"user_id": uid})
+    comments_count = await db.comments.count_documents({"user_id": uid, "deleted": {"$ne": True}})
+
+    return {
+        "user": {
+            "id": user["id"],
+            "name": user.get("name", ""),
+            "email": user.get("email", ""),
+            "role": user.get("role", "user"),
+            "joined_at": user.get("created_at", ""),
+        },
+        "totals": {
+            "reads": total_reads,
+            "minutes": total_minutes,
+            "saved": saved_count,
+            "highlights": highlights_count,
+            "comments": comments_count,
+            "streak_days": streak,
+        },
+        "top_categories": top_categories,
+        "top_tags": top_tags,
+        "by_fact_level": by_fact_level,
+        "emotions": emotions,
+        "recent": recent,
+    }
+
+
+@api_router.delete("/me/dashboard/history")
+async def clear_my_history(user: dict = Depends(get_current_user)):
+    """Reader-controlled privacy: wipe my own reading history."""
+    await db.user_reads.delete_many({"user_id": user["id"]})
+    return {"ok": True}
+
+
 # ---------- Editorial activity feed (home "viva") ----------
 @api_router.get("/editorial/activity")
 async def editorial_activity():
@@ -913,15 +1126,55 @@ async def report_comment(comment_id: str):
 
 
 # ---------- View counter & Most read (public) ----------
+async def _get_user_optional(request: Request) -> Optional[dict]:
+    """Same as get_current_user but returns None instead of raising on missing/invalid auth."""
+    try:
+        return await get_current_user(request)
+    except HTTPException:
+        return None
+
+
 @api_router.post("/articles/{slug}/view")
-async def increment_view(slug: str):
-    """Public: track article view (called once per page load by frontend)."""
+async def increment_view(slug: str, request: Request):
+    """Public: track article view (called once per page load by frontend).
+    If the user is authenticated we also append to their reading history (capped, deduped 1h)."""
     res = await db.articles.update_one(
         {"slug": slug, **PUBLIC_STATUS_FILTER},
         {"$inc": {"views": 1}},
     )
     if res.matched_count == 0:
         return {"ok": False}
+    # Per-user reading history (best-effort, never blocks the view counter).
+    try:
+        user = await _get_user_optional(request)
+        if user:
+            now = datetime.now(timezone.utc)
+            one_hour_ago = (now - timedelta(hours=1)).isoformat()
+            recent = await db.user_reads.find_one({
+                "user_id": user["id"], "slug": slug,
+                "read_at": {"$gte": one_hour_ago},
+            }, {"_id": 0, "id": 1})
+            if not recent:
+                art = await db.articles.find_one(
+                    {"slug": slug, **PUBLIC_STATUS_FILTER},
+                    {"_id": 0, "slug": 1, "title": 1, "category": 1,
+                     "category_slug": 1, "tags": 1, "fact_level": 1, "read_time": 1},
+                )
+                if art:
+                    await db.user_reads.insert_one({
+                        "id": str(uuid.uuid4()),
+                        "user_id": user["id"],
+                        "slug": slug,
+                        "title": art.get("title", ""),
+                        "category": art.get("category", ""),
+                        "category_slug": art.get("category_slug", ""),
+                        "tags": art.get("tags", []) or [],
+                        "fact_level": art.get("fact_level", "analysis"),
+                        "read_time": int(art.get("read_time") or 4),
+                        "read_at": now.isoformat(),
+                    })
+    except Exception:
+        pass  # tracking failures must never break the public view counter
     return {"ok": True}
 
 
