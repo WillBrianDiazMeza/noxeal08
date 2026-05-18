@@ -328,3 +328,35 @@ Todos los campos tienen `field_validator` Pydantic que tolera null, strings suel
 - P2: Sugerencias post-lectura ("Narrativas similares", "La evolución de esta historia")
 - P2: Multi-idioma (ES/EN/FR/NL) con hreflang completo y routing
 - P2: Audio articles (TTS) + dark mode premium
+
+
+### Iteración 11.A · 11.B · 11.C (2026-05-18) ⭐ POST-LECTURA + I18N + ADMIN PREMIUM
+**Tests**: 11.A backend 14/14 + frontend 100% · 11.B+C backend 18/18 pytest + frontend 100% · `retest_needed: False` · 0 issues críticos.
+
+#### Iter 11.A — Experiencia post-lectura + Highlights + Home Viva
+- 📑 **Post-Reading Actions** (`PostReadingActions.jsx`): bloque al final del artículo con tiles editoriales premium: Guardar · Seguir narrativa (link a pillar topic detectado) · Leer contradicción (artículo del mismo tag con fact_level opuesto) · Tu archivo · Compartir + lista "Narrativas similares". Backend `GET /api/articles/{slug}/post-reading`.
+- ✍️ **Highlights por párrafo + notas** (`HighlightLayer.jsx`): seleccionar texto en el body → popover flotante con 3 colores (yellow/green/blue) + add note. Persistido en localStorage **y servidor** cuando hay sesión. Página `/mis-notas` con highlights agrupados por artículo. Backend `GET/POST /api/me/highlights`, `GET /api/me/highlights/{slug}`, `PATCH/DELETE /api/me/highlights/{id}` con `HighlightIn` Pydantic + whitelist colores.
+- 🔴 **Editorial Activity Strip** (`EditorialActivityStrip.jsx`): home con dot pulsante rojo, "Última publicación hace X min", counts_24h/counts_7d, link al último artículo. Auto-refresh 60s. Backend `GET /api/editorial/activity`.
+
+#### Iter 11.B — Multi-idioma + bloques editoriales extra + Timeline pillar
+- 🌐 **Selector idioma ES/EN/FR/NL** (`lib/i18n.js` + `LanguageSwitcher.jsx`): dropdown en header desktop + mobile. Traduce nav labels al instante. Persistencia localStorage + URL `?lang=` + sync entre pestañas. `<html lang>` se actualiza dinámicamente.
+- 🔗 **Hreflang completo** en `SEO.jsx`: `es-ES`, `es`, `en`, `fr`, `nl`, `x-default`.
+- 🟣 **Bloque "Lo que internet cree"** (`WhatInternetBelievesBlock`): caja púrpura, icono Globe2, diamantes ◆ como bullets. Cita teorías virales como objeto de análisis, NO como hechos.
+- 🕰️ **Bloque "Cómo evolucionó la narrativa"** (`NarrativeEvolutionBlock`): timeline vertical con dots azules conectados, fechas en uppercase azul, eventos en serif display, descripciones cortas. Acepta prop `bare` para reuso sin duplicar header.
+- 📅 **Timeline curado por pillar topic** en `/temas/:slug`: cada `PILLAR_TOPICS` ahora tiene `timeline:[{date,event,description}]` con 5 hitos editoriales. Renderizado en sección `tema-timeline`.
+- Make.com payload ampliado: `whatInternetBelieves:List[str]` + `narrativeEvolution:List[{date,event,description}]` con validators tolerantes (claves alternativas `when/title/what/note`).
+
+#### Iter 11.C — Admin Premium + Make.com blindaje
+- 🛡️ **Anti-duplicados Make.com**: `POST /api/articles` rechaza con 409 si hay un artículo publicado con slug o título idéntico (case-insensitive). Inserta evento `duplicate_rejected` en `db.webhook_logs`.
+- 📋 **Panel "Webhook logs"** (admin tab): auto-refresh 30s, lista eventos rechazados con badge, título, link "ver original" y timestamp. Backend `GET /api/admin/webhook-logs`.
+- 🔍 **Live SEO Preview** en modales Create/Edit:
+  - **Google SERP preview**: URL `noxeal.com › articulo › slug`, título truncado a 60 chars en azul Google, meta truncada a 160 chars en gris.
+  - **Twitter/X card preview**: card con aspect 1.91/1, gradient hero con categoría, título + meta.
+  - **Score 0-100** color-coded (verde ≥80, amber ≥60, rojo <60) basado en 8 heurísticas (longitud título, longitud meta, tags, fact_level, source_url, bloques transparencia).
+  - **Warnings** list con sugerencias accionables.
+
+**Backlog restante**:
+- 🟡 P2: Dashboard premium (historial real, intereses emocionales detectados, stats lectura agregadas).
+- 🟢 P2: Sistema emocional/narrativo del internet por categoría (humor agregado por feed Make.com).
+- 🟢 P2: Audio articles (TTS) + dark mode premium.
+- 🟢 P2: Traducción real de contenido editorial via Make.com + Claude (hoy UI cambia pero artículos siguen en ES).
